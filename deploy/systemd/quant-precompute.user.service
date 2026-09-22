@@ -1,0 +1,18 @@
+[Unit]
+Description=Quant background precompute worker (user)
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ww/vv/quant
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/home/ww/vv/quant/.env
+ExecStart=/home/ww/vv/quant/.venv/bin/python -m core.background.precompute_worker --poll-seconds 5 --max-concurrency 3
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+StandardOutput=append:/home/ww/vv/quant/cache/precompute_worker.log
+StandardError=append:/home/ww/vv/quant/cache/precompute_worker.log
+
+[Install]
+WantedBy=default.target

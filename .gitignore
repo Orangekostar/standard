@@ -1,0 +1,25 @@
+.env
+.env.*
+!.env.example
+
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+cache/
+*.log
+nohup.out
+
+.agents/
+.codex
+.omx/
+.vscode/
+.DS_Store
+
+# Files in this working directory that are unrelated to the quant project.
+909.txt
+jump_rope_compare.png
+*.docx
