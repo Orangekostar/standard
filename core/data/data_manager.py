@@ -212,6 +212,25 @@ class MarketDB:
         except Exception:
             return {}
 
+    def recent_trade_dates(self, end_date: str, limit: int) -> list[str]:
+        if not self.db_path.exists():
+            return []
+        try:
+            with self._connect() as conn:
+                if not self._table_exists(conn, "daily_bars"):
+                    return []
+                rows = conn.execute(
+                    """
+                    SELECT DISTINCT trade_date FROM daily_bars
+                    WHERE trade_date <= ?
+                    ORDER BY trade_date DESC LIMIT ?
+                    """,
+                    (str(end_date), max(1, int(limit))),
+                ).fetchall()
+            return sorted(str(row[0]) for row in rows)
+        except Exception:
+            return []
+
     def status(self) -> dict[str, Any]:
         base = {
             "db_path": str(self.db_path),
@@ -254,11 +273,19 @@ class MarketDB:
 
 
 class DataManager:
-    def __init__(self, cache_dir: str | Path | None = None, market_db_path: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        cache_dir: str | Path | None = None,
+        market_db_path: str | Path | None = None,
+        data_mode: str | None = None,
+    ) -> None:
         self.cache_dir = Path(cache_dir) if cache_dir is not None else settings.cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         db_path = Path(market_db_path) if market_db_path is not None else settings.market_db_path
         self.market_db = MarketDB(db_path)
+        self.data_mode = str(data_mode or settings.data_mode or "real").strip().lower()
+        if self.data_mode not in {"real", "demo", "test"}:
+            raise ValueError(f"unsupported DATA_MODE: {self.data_mode}")
 
     def _daily_cache_path(self, ts_code: str, start_date: str, end_date: str) -> Path:
         return self.cache_dir / f"{_cache_code(ts_code)}_{_compact_date(start_date)}_{_compact_date(end_date)}_csv"
@@ -342,6 +369,8 @@ class DataManager:
                 "amount": amount,
             }
         )
+        out["data_source_mode"] = self.data_mode
+        out["_source"] = "SYNTHETIC_FIXTURE"
         return out
 
     def _fetch_daily_tushare(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
@@ -381,7 +410,7 @@ class DataManager:
             if not cached.empty:
                 return cached
         fetched = self._fetch_daily_tushare(normalized, start_date, end_date)
-        if fetched.empty:
+        if fetched.empty and self.data_mode in {"demo", "test"}:
             fetched = self._mock_daily_data(normalized, start_date, end_date)
         if not fetched.empty:
             try:
@@ -404,7 +433,7 @@ class DataManager:
                 df = pro.stock_basic(exchange="", list_status="L", fields="ts_code,symbol,name,area,industry,market,list_date")
             except Exception:
                 df = pd.DataFrame()
-        if df.empty:
+        if df.empty and self.data_mode in {"demo", "test"}:
             df = pd.DataFrame(
                 [
                     {"ts_code": "000001.SZ", "symbol": "000001", "name": "平安银行"},
@@ -412,6 +441,8 @@ class DataManager:
                     {"ts_code": "600986.SH", "symbol": "600986", "name": "浙文互联"},
                 ]
             )
+            df["data_source_mode"] = self.data_mode
+            df["_source"] = "SYNTHETIC_FIXTURE"
         try:
             df.to_csv(path, index=False)
         except Exception:
@@ -545,7 +576,30 @@ class DataManager:
         end_ts = pd.to_datetime(_compact_date(end_date), format="%Y%m%d", errors="coerce")
         if pd.isna(end_ts):
             end_ts = pd.Timestamp.today().normalize()
-        return pd.bdate_range(end=end_ts, periods=max(1, int(lookback_trade_days))).strftime("%Y%m%d").tolist()
+        periods = max(1, int(lookback_trade_days))
+        if self.data_mode in {"demo", "test"}:
+            return pd.bdate_range(end=end_ts, periods=periods).strftime("%Y%m%d").tolist()
+        local_sessions = self.market_db.recent_trade_dates(end_ts.strftime("%Y%m%d"), periods)
+        if len(local_sessions) >= periods:
+            return local_sessions
+        pro = get_pro_api()
+        if pro is None:
+            return local_sessions
+        start_ts = end_ts - pd.Timedelta(days=max(30, periods * 2 + 20))
+        try:
+            calendar = pro.trade_cal(
+                exchange="SSE",
+                start_date=start_ts.strftime("%Y%m%d"),
+                end_date=end_ts.strftime("%Y%m%d"),
+                is_open="1",
+            )
+        except Exception:
+            return local_sessions
+        if calendar is None or calendar.empty or "cal_date" not in calendar.columns:
+            return local_sessions
+        open_mask = pd.to_numeric(calendar.get("is_open", 1), errors="coerce").fillna(0).eq(1)
+        sessions = sorted(calendar.loc[open_mask, "cal_date"].dropna().astype(str).unique().tolist())
+        return sorted(set(local_sessions).union(sessions))[-periods:]
 
     def _prepare_db_priority_panel(
         self,

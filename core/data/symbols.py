@@ -59,6 +59,26 @@ def is_buyable_mainboard_ts_code(value: str) -> bool:
     return suffix in {"SH", "SZ"} and code.startswith(("00", "60"))
 
 
+def classify_listing_board(value: str) -> str | None:
+    try:
+        code, suffix = normalize_ts_code(value).split(".", 1)
+    except ValueError:
+        return None
+    if suffix == "SH" and code.startswith(("600", "601", "603", "605")):
+        return "MAIN_SH"
+    if suffix == "SH" and code.startswith(("688", "689")):
+        return "STAR"
+    if suffix == "SZ" and code.startswith(("000", "001", "002", "003")):
+        return "MAIN_SZ"
+    if suffix == "SZ" and code.startswith(("300", "301")):
+        return "CHINEXT"
+    return None
+
+
+def is_analysis_universe_ts_code(value: str) -> bool:
+    return classify_listing_board(value) is not None
+
+
 def is_risk_warning_name(value: str) -> bool:
     name = str(value or "").strip().upper().replace(" ", "")
     if not name:

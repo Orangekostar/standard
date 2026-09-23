@@ -101,7 +101,7 @@ class BackgroundRefreshRecoveryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = Path(tmpdir) / "cache"
             db_path = cache_dir / "market.db"
-            dm = DataManager(cache_dir=cache_dir, market_db_path=db_path)
+            dm = DataManager(cache_dir=cache_dir, market_db_path=db_path, data_mode="demo")
 
             result = dm.sync_market_data_window_db(end_date="20260706", lookback_trade_days=3, force_refresh=False)
 
@@ -121,7 +121,7 @@ class BackgroundRefreshRecoveryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = Path(tmpdir) / "cache"
             db_path = cache_dir / "market.db"
-            dm = DataManager(cache_dir=cache_dir, market_db_path=db_path)
+            dm = DataManager(cache_dir=cache_dir, market_db_path=db_path, data_mode="demo")
             codes = [f"000{idx:03d}.SZ" for idx in range(1, 26)]
             fake_pro = _FakeAllMarketPro(codes=codes, days=["20260706", "20260707"])
 
@@ -140,7 +140,7 @@ class BackgroundRefreshRecoveryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = Path(tmpdir) / "cache"
             db_path = cache_dir / "market.db"
-            dm = DataManager(cache_dir=cache_dir, market_db_path=db_path)
+            dm = DataManager(cache_dir=cache_dir, market_db_path=db_path, data_mode="demo")
             codes = [f"000{idx:03d}.SZ" for idx in range(1, 26)]
             dm.market_db.write_stock_basic(_FakeAllMarketPro(codes=codes, days=[]).stock_basic())
             dm.market_db.write_daily_bars(_FakeAllMarketPro(codes=codes, days=["20260707"]).daily(trade_date="20260707"))
