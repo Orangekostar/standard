@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterable
 from contextlib import closing, contextmanager
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import pandas as pd
 
 from core.technical_v2.contracts import ContractError, canonical_json
-
 
 SCHEMA_VERSION = 1
 REQUIRED_TABLES = {
@@ -620,6 +620,112 @@ class V2Store:
     def read_analysis_runs(self) -> pd.DataFrame:
         with closing(self._connect()) as conn:
             return pd.read_sql_query("SELECT * FROM analysis_runs ORDER BY generated_at, run_id", conn)
+
+    def create_paper_account(
+        self,
+        account_id: str,
+        *,
+        method: str,
+        initial_cash_cents: int,
+        account_type: str = "paper",
+    ) -> None:
+        if int(initial_cash_cents) < 0:
+            raise ContractError("initial paper cash cannot be negative")
+        created_at = pd.Timestamp.now(tz="UTC").isoformat()
+        with self._write_connection() as conn:
+            existing = conn.execute(
+                "SELECT method, account_type, initial_cash_cents FROM paper_accounts WHERE account_id = ?",
+                (str(account_id),),
+            ).fetchone()
+            expected = (str(method), str(account_type), int(initial_cash_cents))
+            if existing is not None and tuple(existing) != expected:
+                raise ContractError("paper account definition is immutable")
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO paper_accounts(
+                    account_id, method, account_type, initial_cash_cents, created_at, status
+                ) VALUES (?, ?, ?, ?, ?, 'ACTIVE')
+                """,
+                (str(account_id), str(method), str(account_type), int(initial_cash_cents), created_at),
+            )
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO paper_cash_ledger(
+                    entry_id, account_id, event_at, amount_cents,
+                    balance_cents, reason_code, reference_id
+                ) VALUES (?, ?, ?, ?, ?, 'INITIAL_CAPITAL', ?)
+                """,
+                (
+                    f"initial:{account_id}",
+                    str(account_id),
+                    created_at,
+                    int(initial_cash_cents),
+                    int(initial_cash_cents),
+                    str(account_id),
+                ),
+            )
+
+    def paper_cash_balance(self, account_id: str) -> int:
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                """
+                SELECT balance_cents FROM paper_cash_ledger
+                WHERE account_id = ? ORDER BY event_at DESC, rowid DESC LIMIT 1
+                """,
+                (str(account_id),),
+            ).fetchone()
+        if row is None:
+            raise ContractError(f"paper account has no cash ledger: {account_id}")
+        return int(row[0])
+
+    def read_paper_lots(self, account_id: str) -> pd.DataFrame:
+        with closing(self._connect()) as conn:
+            return pd.read_sql_query(
+                "SELECT * FROM paper_lots WHERE account_id = ? ORDER BY entry_date, lot_id",
+                conn,
+                params=[str(account_id)],
+            )
+
+    def read_paper_orders(self, account_id: str | None = None) -> pd.DataFrame:
+        query = "SELECT * FROM paper_orders"
+        params: list[Any] = []
+        if account_id is not None:
+            query += " WHERE account_id = ?"
+            params.append(str(account_id))
+        query += " ORDER BY earliest_trade_date, order_id"
+        with closing(self._connect()) as conn:
+            return pd.read_sql_query(query, conn, params=params)
+
+    def read_paper_fills(self, account_id: str | None = None) -> pd.DataFrame:
+        query = "SELECT * FROM paper_fills"
+        params: list[Any] = []
+        if account_id is not None:
+            query += " WHERE account_id = ?"
+            params.append(str(account_id))
+        query += " ORDER BY trade_date, fill_id"
+        with closing(self._connect()) as conn:
+            return pd.read_sql_query(query, conn, params=params)
+
+    def count_fills(self, order_id: str | None = None) -> int:
+        query = "SELECT COUNT(*) FROM paper_fills"
+        params: tuple[Any, ...] = ()
+        if order_id is not None:
+            query += " WHERE order_id = ?"
+            params = (str(order_id),)
+        with closing(self._connect()) as conn:
+            row = conn.execute(query, params).fetchone()
+        return int(row[0]) if row else 0
+
+    def read_paper_corporate_action_ledger(self, account_id: str) -> pd.DataFrame:
+        with closing(self._connect()) as conn:
+            return pd.read_sql_query(
+                """
+                SELECT * FROM paper_corporate_action_ledger
+                WHERE account_id = ? ORDER BY effective_date, ledger_id
+                """,
+                conn,
+                params=[str(account_id)],
+            )
 
     def _upsert_frame(
         self,

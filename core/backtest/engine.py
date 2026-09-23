@@ -14,6 +14,10 @@ class BacktestResult:
 
 
 class BacktestEngine:
+    """Legacy close-to-close reference; not valid as a Technical V2 return engine."""
+
+    engine_status = "LEGACY_REFERENCE_ONLY"
+
     def __init__(self, fee_rate: float = 0.0005) -> None:
         self.fee_rate = fee_rate
 
