@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -11,7 +12,12 @@ from pathlib import Path
 import pandas as pd
 
 from core.data.v2_store import V2Store
-from scripts.v2 import REQUIRED_COMMANDS, build_parser, resolve_latest_as_of
+from scripts.v2 import (
+    REQUIRED_COMMANDS,
+    build_parser,
+    resolve_latest_as_of,
+    verify_artifact_manifest,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PYTHON = Path(sys.executable)
@@ -189,6 +195,36 @@ class CliV2Test(unittest.TestCase):
         self.assertEqual(payload["formula_valid_rows"], 12)
         self.assertEqual(payload["feature_rows"], 4)
         self.assertEqual(payload["jev_status"], "NOT_REQUESTED")
+
+    def test_release_manifest_detects_changed_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir)
+            report = run_dir / "TEST_REPORT.md"
+            report.write_text("verified\n", encoding="utf-8")
+            digest = hashlib.sha256(report.read_bytes()).hexdigest()
+            (run_dir / "artifact_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "technical-v2-artifact-manifest.v1",
+                        "run_id": "run-1",
+                        "files": [
+                            {
+                                "path": "TEST_REPORT.md",
+                                "size_bytes": report.stat().st_size,
+                                "sha256": digest,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(verify_artifact_manifest(run_dir, "run-1"), [])
+            report.write_text("changed\n", encoding="utf-8")
+
+            errors = verify_artifact_manifest(run_dir, "run-1")
+
+        self.assertTrue(any("sha256" in error for error in errors))
 
 
 if __name__ == "__main__":

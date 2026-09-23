@@ -1116,6 +1116,53 @@ def _export(args: argparse.Namespace) -> CommandOutcome:
     )
 
 
+def verify_artifact_manifest(run_dir: Path, run_id: str) -> list[str]:
+    manifest_path = run_dir / "artifact_manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"artifact_manifest.json: {type(exc).__name__}"]
+    if not isinstance(manifest, dict):
+        return ["artifact_manifest.json: root must be an object"]
+    errors: list[str] = []
+    if manifest.get("schema_version") != "technical-v2-artifact-manifest.v1":
+        errors.append("artifact_manifest.json: unsupported schema_version")
+    if manifest.get("run_id") != run_id:
+        errors.append("artifact_manifest.json: run_id mismatch")
+    files = manifest.get("files")
+    if not isinstance(files, list) or not files:
+        errors.append("artifact_manifest.json: files must be a non-empty list")
+        return errors
+    seen: set[str] = set()
+    for index, item in enumerate(files):
+        if not isinstance(item, dict):
+            errors.append(f"artifact_manifest.json: files[{index}] is not an object")
+            continue
+        relative = str(item.get("path") or "")
+        relative_path = Path(relative)
+        if (
+            not relative
+            or relative_path.is_absolute()
+            or ".." in relative_path.parts
+            or relative in seen
+            or relative == "artifact_manifest.json"
+        ):
+            errors.append(f"artifact_manifest.json: invalid path {relative!r}")
+            continue
+        seen.add(relative)
+        target = run_dir / relative_path
+        if not target.is_file():
+            errors.append(f"{relative}: missing")
+            continue
+        expected_size = item.get("size_bytes")
+        if not isinstance(expected_size, int) or expected_size != target.stat().st_size:
+            errors.append(f"{relative}: size mismatch")
+        expected_hash = str(item.get("sha256") or "")
+        if len(expected_hash) != 64 or expected_hash != _file_hash(target):
+            errors.append(f"{relative}: sha256 mismatch")
+    return errors
+
+
 def _audit_release(args: argparse.Namespace) -> CommandOutcome:
     _, artifact_root = _mode_paths(args)
     run_dir = artifact_root / str(args.run_id)
@@ -1131,14 +1178,16 @@ def _audit_release(args: argparse.Namespace) -> CommandOutcome:
     latest = read_latest_manifest(artifact_root)
     if latest is None or latest.get("run_id") != args.run_id:
         missing.append("validated_latest_publication")
+    errors = [] if missing else verify_artifact_manifest(run_dir, str(args.run_id))
     return CommandOutcome(
         {
             **_common_payload("audit-release", args.mode),
-            "status": "PREREQUISITE_MISSING" if missing else "OK",
+            "status": "PREREQUISITE_MISSING" if missing else "ERROR" if errors else "OK",
             "run_id": args.run_id,
             "missing": sorted(set(missing)),
+            "errors": errors,
         },
-        2 if missing else 0,
+        2 if missing else 3 if errors else 0,
     )
 
 
