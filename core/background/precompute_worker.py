@@ -24,7 +24,17 @@ from core.background.snapshot_store import (
     write_task_status,
     write_worker_status,
 )
-from core.background.task_rules import should_write_error_snapshot
+from core.background.task_rules import (
+    dependency_snapshot_matches,
+    should_write_error_snapshot,
+    snapshot_is_successful,
+)
+from core.background.technical_v2_tasks import (
+    TECHNICAL_V2_OPTIONAL_DEPENDENCIES,
+    TECHNICAL_V2_TASKS,
+    TechnicalV2TaskRunner,
+    technical_v2_task_definitions,
+)
 from core.data.data_manager import DataManager
 
 
@@ -54,6 +64,8 @@ SCHEDULED_REFRESH_TASKS: tuple[str, ...] = (
     "holding_advice",
 )
 SCHEDULED_REFRESH_HOURS: tuple[int, ...] = (9, 16, 20)
+SCHEDULED_REFRESH_SLOTS: tuple[tuple[int, int], ...] = ((9, 0), (16, 0), (20, 0))
+TECHNICAL_V2_SCHEDULE_SLOTS: tuple[tuple[int, int], ...] = ((9, 0), (16, 10), (20, 10))
 
 
 @dataclass
@@ -89,11 +101,18 @@ class ActiveTask:
     force_refresh: bool
 
 
-def _task_process_main(task_name: str, params: dict[str, Any], force_refresh: bool, out_queue: mp.Queue) -> None:
-    worker = PrecomputeWorker()
+def _task_process_main(
+    task_name: str,
+    params: dict[str, Any],
+    force_refresh: bool,
+    out_queue: mp.Queue,
+    profile: str = "legacy",
+) -> None:
+    worker = PrecomputeWorker(profile=profile)
     try:
         payload = worker.dispatch_task(task_name=task_name, params=params, force_refresh=force_refresh)
-        write_snapshot(task_name, payload=payload, status="ok")
+        snapshot_status = str(payload.get("status") or "ERROR") if profile == "technical_v2" else "ok"
+        write_snapshot(task_name, payload=payload, status=snapshot_status)
         out_queue.put(
             {
                 "ok": True,
@@ -116,10 +135,21 @@ class PrecomputeWorker:
         intervals: WorkerIntervals | None = None,
         timeouts: WorkerTimeouts | None = None,
         max_concurrency: int | None = None,
+        profile: str = "legacy",
     ) -> None:
+        self.profile = str(profile or "legacy")
+        if self.profile not in {"legacy", "technical_v2"}:
+            raise ValueError(f"unsupported worker profile: {self.profile}")
         self.data_manager = DataManager()
+        self.technical_v2_runner = TechnicalV2TaskRunner()
         self.intervals = intervals or WorkerIntervals()
         self.timeouts = timeouts or WorkerTimeouts()
+        self.scheduled_tasks = TECHNICAL_V2_TASKS if self.profile == "technical_v2" else SCHEDULED_REFRESH_TASKS
+        self.scheduled_slots = (
+            TECHNICAL_V2_SCHEDULE_SLOTS
+            if self.profile == "technical_v2"
+            else SCHEDULED_REFRESH_SLOTS
+        )
         cpu_count = os.cpu_count() or 4
         self.max_concurrency = int(max_concurrency or max(2, min(4, cpu_count)))
         self.last_run: dict[str, pd.Timestamp] = {}
@@ -128,6 +158,17 @@ class PrecomputeWorker:
         self.task_specs = self._build_task_specs()
 
     def _build_task_specs(self) -> dict[str, TaskSpec]:
+        if self.profile == "technical_v2":
+            return {
+                item.name: TaskSpec(
+                    name=item.name,
+                    interval_seconds=item.interval_seconds,
+                    timeout_seconds=item.timeout_seconds,
+                    priority=item.priority,
+                    dependencies=item.dependencies,
+                )
+                for item in technical_v2_task_definitions()
+            }
         return {
             "market_db_sync": TaskSpec(
                 name="market_db_sync",
@@ -377,7 +418,7 @@ class PrecomputeWorker:
             return status
         if str(status.get("status", "") or "") != "running":
             return status
-        if not isinstance(snapshot, dict) or str(snapshot.get("status", "") or "") != "ok":
+        if not snapshot_is_successful(snapshot):
             return status
 
         extra = status.get("extra") if isinstance(status.get("extra"), dict) else {}
@@ -419,16 +460,25 @@ class PrecomputeWorker:
         latest = self.last_run.get(task_name)
         snapshot = read_snapshot(task_name)
         snapshot_ts = self._snapshot_generated_at(snapshot)
+        if self.profile == "technical_v2" and snapshot_ts is not None:
+            if snapshot_ts.tzinfo is None:
+                snapshot_ts = snapshot_ts.tz_localize("UTC")
+            snapshot_ts = snapshot_ts.tz_convert("Asia/Shanghai").tz_localize(None)
         if latest is None:
             return snapshot_ts
         if snapshot_ts is None:
             return latest
         return max(latest, snapshot_ts)
 
+    def _scheduler_now(self) -> pd.Timestamp:
+        if self.profile == "technical_v2":
+            return pd.Timestamp.now(tz="Asia/Shanghai").tz_localize(None)
+        return pd.Timestamp.now()
+
     def _is_due(self, task_name: str, interval_seconds: int, now: pd.Timestamp) -> bool:
         last = self._last_effective_run(task_name)
-        if task_name in SCHEDULED_REFRESH_TASKS:
-            slot = self._latest_scheduled_slot(now)
+        if task_name in self.scheduled_tasks:
+            slot = self._latest_scheduled_slot(now, self.scheduled_slots)
             if last is None:
                 return True
             return bool(last < slot)
@@ -437,19 +487,29 @@ class PrecomputeWorker:
         return (now - last).total_seconds() >= max(1, int(interval_seconds))
 
     @staticmethod
-    def _latest_scheduled_slot(now: pd.Timestamp) -> pd.Timestamp:
+    def _latest_scheduled_slot(
+        now: pd.Timestamp,
+        slots: tuple[tuple[int, int], ...] = SCHEDULED_REFRESH_SLOTS,
+    ) -> pd.Timestamp:
         day_start = now.normalize()
-        valid_hours = sorted({int(h) for h in SCHEDULED_REFRESH_HOURS if 0 <= int(h) <= 23})
-        if not valid_hours:
+        valid_slots = sorted(
+            {
+                (int(hour), int(minute))
+                for hour, minute in slots
+                if 0 <= int(hour) <= 23 and 0 <= int(minute) <= 59
+            }
+        )
+        if not valid_slots:
             return day_start
 
-        for hour in reversed(valid_hours):
-            slot = day_start + pd.Timedelta(hours=hour)
+        for hour, minute in reversed(valid_slots):
+            slot = day_start + pd.Timedelta(hours=hour, minutes=minute)
             if slot <= now:
                 return slot
 
         prev_day = day_start - pd.Timedelta(days=1)
-        return prev_day + pd.Timedelta(hours=valid_hours[-1])
+        hour, minute = valid_slots[-1]
+        return prev_day + pd.Timedelta(hours=hour, minutes=minute)
 
     @staticmethod
     def _snapshot_params(task_name: str) -> dict[str, Any]:
@@ -462,25 +522,104 @@ class PrecomputeWorker:
         params = payload.get("params")
         return params if isinstance(params, dict) else {}
 
-    def _task_dependency_blocked(self, spec: TaskSpec) -> bool:
+    def _task_dependency_blocked(
+        self,
+        spec: TaskSpec,
+        expected_binding: dict[str, Any] | None = None,
+    ) -> bool:
+        if self.profile == "technical_v2" and any(
+            active_name in self._dependency_ancestors(spec.name)
+            for active_name in self.active_tasks
+        ):
+            return True
+        expected = dict(expected_binding or {})
         for dep in spec.dependencies:
             if dep in self.active_tasks:
                 return True
             if has_pending_request(dep):
                 return True
-            if read_snapshot(dep) is None:
+            snapshot = read_snapshot(dep)
+            if self.profile != "technical_v2":
+                if snapshot is None:
+                    return True
+                continue
+            payload = snapshot.get("payload") if isinstance(snapshot, dict) else None
+            if not expected and isinstance(payload, dict):
+                expected = {
+                    key: payload.get(key)
+                    for key in ("run_id", "as_of_trade_date", "data_hash")
+                }
+            if not dependency_snapshot_matches(snapshot, expected):
                 return True
         return False
+
+    def _dependency_ancestors(self, task_name: str) -> set[str]:
+        ancestors: set[str] = set()
+        pending = list(self.task_specs[task_name].dependencies)
+        while pending:
+            dependency = pending.pop()
+            if dependency in ancestors:
+                continue
+            ancestors.add(dependency)
+            if dependency in self.task_specs:
+                pending.extend(self.task_specs[dependency].dependencies)
+        return ancestors
 
     def _resolve_task_params(self, task_name: str, request_data: dict[str, Any] | None) -> tuple[dict[str, Any], bool]:
         if isinstance(request_data, dict):
             params = request_data.get("payload") or {}
             force_refresh = bool(request_data.get("force", False))
             return dict(params), force_refresh
+        if self.profile == "technical_v2":
+            spec = self.task_specs[task_name]
+            dependency_names = (*spec.dependencies, *TECHNICAL_V2_OPTIONAL_DEPENDENCIES.get(task_name, ()))
+            dependencies: dict[str, str] = {}
+            binding: dict[str, Any] = {}
+            for dependency in dependency_names:
+                snapshot = read_snapshot(dependency)
+                payload = snapshot.get("payload") if isinstance(snapshot, dict) else None
+                if not isinstance(payload, dict) or not snapshot_is_successful(snapshot):
+                    continue
+                if not binding:
+                    binding = {
+                        key: payload.get(key)
+                        for key in ("run_id", "as_of_trade_date", "data_hash")
+                    }
+                if dependency_snapshot_matches(snapshot, binding):
+                    dependencies[dependency] = str(payload.get("artifact_id") or "")
+            if binding:
+                return {**binding, "dependency_artifacts": dependencies}, False
         params = dict(self._snapshot_params(task_name))
         if task_name in {"market_db_sync", "sector_fund_flow", "smart_pick", "dragon_radar", "ma5_pullback", "three_bull_pullback", "today_entry", "rebound_entry", "holding_advice"}:
             params.pop("end_date", None)
         return params, False
+
+    def _technical_task_needs_run(self, spec: TaskSpec, now: pd.Timestamp) -> bool:
+        if not spec.dependencies:
+            return self._is_due(spec.name, spec.interval_seconds, now)
+        first = read_snapshot(spec.dependencies[0])
+        payload = first.get("payload") if isinstance(first, dict) else None
+        if not isinstance(payload, dict):
+            return False
+        binding = {
+            key: payload.get(key)
+            for key in ("run_id", "as_of_trade_date", "data_hash")
+        }
+        dependency_names = (*spec.dependencies, *TECHNICAL_V2_OPTIONAL_DEPENDENCIES.get(spec.name, ()))
+        dependency_artifacts: dict[str, str] = {}
+        for dependency in dependency_names:
+            snapshot = read_snapshot(dependency)
+            if dependency_snapshot_matches(snapshot, binding):
+                dependency_payload = snapshot["payload"]
+                dependency_artifacts[dependency] = str(dependency_payload.get("artifact_id") or "")
+        existing = read_snapshot(spec.name)
+        existing_payload = existing.get("payload") if isinstance(existing, dict) else None
+        if not isinstance(existing_payload, dict):
+            return True
+        if any(str(existing_payload.get(key) or "") != str(value or "") for key, value in binding.items()):
+            return True
+        recorded_dependencies = existing_payload.get("dependency_artifacts")
+        return not isinstance(recorded_dependencies, dict) or recorded_dependencies != dependency_artifacts
 
     def _queue_refresh_if_idle(self, task_name: str, force: bool = False) -> None:
         if task_name in self.active_tasks:
@@ -506,7 +645,7 @@ class PrecomputeWorker:
         out_queue: mp.Queue = ctx.Queue(maxsize=1)
         proc = ctx.Process(
             target=_task_process_main,
-            args=(spec.name, dict(params or {}), bool(force_refresh), out_queue),
+            args=(spec.name, dict(params or {}), bool(force_refresh), out_queue, self.profile),
             daemon=True,
         )
         proc.start()
@@ -608,7 +747,7 @@ class PrecomputeWorker:
             force=True,
         )
         self._task_progress_state.pop(task_name, None)
-        self.last_run[task_name] = finished_at
+        self.last_run[task_name] = self._scheduler_now() if self.profile == "technical_v2" else finished_at
 
     def _finalize_task_success(self, task_name: str, active: ActiveTask) -> None:
         finished_at = pd.Timestamp.now()
@@ -642,7 +781,7 @@ class PrecomputeWorker:
             force=True,
         )
         self._task_progress_state.pop(task_name, None)
-        self.last_run[task_name] = finished_at
+        self.last_run[task_name] = self._scheduler_now() if self.profile == "technical_v2" else finished_at
 
     def _poll_active_tasks(self) -> None:
         now = pd.Timestamp.now()
@@ -711,18 +850,24 @@ class PrecomputeWorker:
         for spec in sorted(self.task_specs.values(), key=lambda item: item.priority):
             if spec.name in self.active_tasks:
                 continue
-            if self._task_dependency_blocked(spec):
-                continue
             request_data = read_request(spec.name)
+            request_payload = request_data.get("payload") if isinstance(request_data, dict) else None
+            expected = request_payload if isinstance(request_payload, dict) else None
+            if self._task_dependency_blocked(spec, expected):
+                continue
             if request_data is not None:
                 candidates.append(spec)
+                continue
+            if self.profile == "technical_v2":
+                if self._technical_task_needs_run(spec, now):
+                    candidates.append(spec)
                 continue
             if self._is_due(spec.name, spec.interval_seconds, now):
                 candidates.append(spec)
         return candidates
 
     def _schedule_due_tasks(self) -> None:
-        now = pd.Timestamp.now()
+        now = self._scheduler_now()
         available_slots = max(0, int(self.max_concurrency) - len(self.active_tasks))
         if available_slots <= 0:
             return
@@ -753,7 +898,8 @@ class PrecomputeWorker:
                     "active_tasks": active_names,
                     "max_concurrency": self.max_concurrency,
                     "scheduled_hours": list(SCHEDULED_REFRESH_HOURS),
-                    "scheduled_tasks": list(SCHEDULED_REFRESH_TASKS),
+                    "scheduled_slots": [list(slot) for slot in self.scheduled_slots],
+                    "scheduled_tasks": list(self.scheduled_tasks),
                 },
             )
         else:
@@ -765,11 +911,14 @@ class PrecomputeWorker:
                     "running_count": 0,
                     "max_concurrency": self.max_concurrency,
                     "scheduled_hours": list(SCHEDULED_REFRESH_HOURS),
-                    "scheduled_tasks": list(SCHEDULED_REFRESH_TASKS),
+                    "scheduled_slots": [list(slot) for slot in self.scheduled_slots],
+                    "scheduled_tasks": list(self.scheduled_tasks),
                 },
             )
 
     def dispatch_task(self, task_name: str, params: dict[str, Any], force_refresh: bool) -> dict[str, Any]:
+        if self.profile == "technical_v2":
+            return self.technical_v2_runner.dispatch(task_name, params, force_refresh)
         mapping = {
             "market_db_sync": self._compute_market_db_sync,
             "sector_fund_flow": self._compute_sector_fund_flow,
@@ -1321,7 +1470,7 @@ class PrecomputeWorker:
         return {"stats": stats, "params": params, "force_refresh": force_refresh}
 
     def _has_due_work(self) -> bool:
-        now = pd.Timestamp.now()
+        now = self._scheduler_now()
         return bool(self._candidate_specs(now))
 
     def run_once(self, wait_until_idle: bool = False) -> None:
@@ -1344,6 +1493,7 @@ class PrecomputeWorker:
                 "pid": os.getpid(),
                 "max_concurrency": self.max_concurrency,
                 "scheduled_hours": list(SCHEDULED_REFRESH_HOURS),
+                "scheduled_slots": [list(slot) for slot in self.scheduled_slots],
             },
         )
 
@@ -1354,6 +1504,12 @@ class PrecomputeWorker:
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run quant precompute worker")
+    parser.add_argument(
+        "--profile",
+        choices=("legacy", "technical_v2"),
+        default="legacy",
+        help="Worker task profile",
+    )
     parser.add_argument("--once", action="store_true", help="Run one cycle and exit")
     parser.add_argument("--poll-seconds", type=int, default=15, help="Polling interval in seconds")
     parser.add_argument("--max-concurrency", type=int, default=3, help="Maximum concurrent background tasks")
@@ -1362,7 +1518,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = _build_arg_parser().parse_args()
-    worker = PrecomputeWorker(max_concurrency=int(args.max_concurrency))
+    worker = PrecomputeWorker(
+        max_concurrency=int(args.max_concurrency),
+        profile=str(args.profile),
+    )
     if args.once:
         worker.run_once(wait_until_idle=True)
         return

@@ -1,15 +1,23 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from core.technical_v2.contracts import ContractError
+from core.background.snapshot_store import (
+    ArtifactMismatch,
+    write_immutable_json,
+    write_publication_manifest,
+    write_run_manifest,
+)
+from core.technical_v2.contracts import ContractError, json_safe, sha256_json
 
 FIXED_SPLIT_COUNTS = {
     "train": 252,
@@ -20,6 +28,8 @@ FIXED_SPLIT_COUNTS = {
 FIXED_MATURE_DATES = sum(FIXED_SPLIT_COUNTS.values())
 WARMUP_SESSIONS = 120
 TARGET_DEFINITION_VERSION = "adjusted-open-t1-to-t1-plus-h.v1"
+PREDICTION_METHODS = ("formula", "jev")
+PREDICTION_HORIZONS = (1, 3, 5)
 
 
 @dataclass(frozen=True)
@@ -29,6 +39,17 @@ class FixedSplitPlan:
     warmup_dates: dict[str, tuple[str, ...]]
     block_starts: dict[str, str]
     reason_codes: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PipelineRunResult:
+    run_id: str
+    publication_id: str
+    manifest_hash: str
+    manifest_path: Path
+    coverage_rows: int
+    valid_prediction_rows: int
+    route_statuses: dict[str, str]
 
 
 def _compact_date(value: Any) -> str:
@@ -433,3 +454,336 @@ def select_cohort(
             for rank, (code, sector) in enumerate(selected, start=1)
         ]
     )
+
+
+def _prediction_entity_column(universe: pd.DataFrame) -> str:
+    for column in ("entity_id", "code", "ts_code"):
+        if column in universe.columns:
+            return column
+    raise ContractError("prediction universe requires entity_id, code, or ts_code")
+
+
+def build_prediction_contract(
+    universe: pd.DataFrame,
+    predictions: pd.DataFrame | None,
+    *,
+    as_of_trade_date: Any,
+    entity_type: str = "stock",
+    methods: Sequence[str] = PREDICTION_METHODS,
+    horizons: Sequence[int] = PREDICTION_HORIZONS,
+    missing_status_by_method: dict[str, str] | None = None,
+) -> pd.DataFrame:
+    as_of = _compact_date(as_of_trade_date)
+    if not as_of:
+        raise ContractError("prediction contract requires as_of_trade_date")
+    method_values = tuple(str(value) for value in methods)
+    horizon_values = tuple(int(value) for value in horizons)
+    if not method_values or len(set(method_values)) != len(method_values):
+        raise ContractError("prediction methods must be unique and non-empty")
+    if not horizon_values or len(set(horizon_values)) != len(horizon_values):
+        raise ContractError("prediction horizons must be unique and non-empty")
+    entity_column = _prediction_entity_column(universe)
+    members = universe.copy()
+    members["entity_id"] = members[entity_column].astype(str)
+    if members["entity_id"].eq("").any() or members["entity_id"].duplicated().any():
+        raise ContractError("prediction universe entity IDs must be unique and non-empty")
+    reserved_columns = {
+        "entity_type",
+        "entity_id",
+        "as_of_trade_date",
+        "horizon",
+        "method",
+        "prediction_status",
+        "reason_codes",
+    }
+    metadata_columns = [
+        column
+        for column in members.columns
+        if column != entity_column and column not in reserved_columns
+    ]
+    members = members[[entity_column, *metadata_columns]].rename(columns={entity_column: "entity_id"})
+    members = members.loc[:, ~members.columns.duplicated()].sort_values("entity_id").reset_index(drop=True)
+    base_rows = []
+    for member in members.to_dict(orient="records"):
+        for method in method_values:
+            for horizon in horizon_values:
+                base_rows.append(
+                    {
+                        **member,
+                        "entity_type": str(entity_type),
+                        "as_of_trade_date": as_of,
+                        "horizon": horizon,
+                        "method": method,
+                    }
+                )
+    base = pd.DataFrame(
+        base_rows,
+        columns=[
+            "entity_id",
+            *metadata_columns,
+            "entity_type",
+            "as_of_trade_date",
+            "horizon",
+            "method",
+        ],
+    )
+    supplied = predictions.copy() if predictions is not None else pd.DataFrame()
+    keys = ["entity_type", "entity_id", "as_of_trade_date", "horizon", "method"]
+    if not supplied.empty:
+        required = {*keys, "prediction_status"}
+        if missing := sorted(required.difference(supplied.columns)):
+            raise ContractError(f"prediction rows missing columns: {', '.join(missing)}")
+        supplied["entity_type"] = supplied["entity_type"].astype(str)
+        supplied["entity_id"] = supplied["entity_id"].astype(str)
+        supplied["as_of_trade_date"] = supplied["as_of_trade_date"].map(_compact_date)
+        supplied["horizon"] = pd.to_numeric(supplied["horizon"], errors="coerce")
+        supplied["method"] = supplied["method"].astype(str)
+        if not supplied["entity_type"].eq(str(entity_type)).all():
+            raise ArtifactMismatch("prediction entity_type does not match publication contract")
+        if not supplied["as_of_trade_date"].eq(as_of).all():
+            raise ArtifactMismatch("prediction as_of_trade_date does not match publication")
+        if not supplied["method"].isin(method_values).all():
+            raise ArtifactMismatch("prediction method does not match publication contract")
+        if not supplied["horizon"].isin(horizon_values).all():
+            raise ArtifactMismatch("prediction horizon does not match publication contract")
+        if not supplied["entity_id"].isin(set(members["entity_id"])).all():
+            raise ArtifactMismatch("prediction entity is outside the frozen universe")
+        if supplied.duplicated(keys).any():
+            raise ArtifactMismatch("prediction rows contain duplicate publication keys")
+        payload_columns = [
+            column
+            for column in supplied.columns
+            if column not in keys and column not in base.columns
+        ]
+        base = base.merge(supplied[keys + payload_columns], on=keys, how="left", validate="one_to_one")
+    if "prediction_status" not in base.columns:
+        base["prediction_status"] = None
+    missing_status = {method: "NOT_EVALUATED" for method in method_values}
+    missing_status.update({str(key): str(value) for key, value in (missing_status_by_method or {}).items()})
+    missing_mask = base["prediction_status"].isna() | base["prediction_status"].astype(str).eq("")
+    base.loc[missing_mask, "prediction_status"] = base.loc[missing_mask, "method"].map(missing_status)
+    if "reason_codes" not in base.columns:
+        base["reason_codes"] = None
+    base.loc[missing_mask, "reason_codes"] = base.loc[missing_mask, "prediction_status"].map(
+        lambda status: (str(status),)
+    )
+    method_order = {method: index for index, method in enumerate(method_values)}
+    base["_method_order"] = base["method"].map(method_order)
+    return (
+        base.sort_values(["entity_id", "_method_order", "horizon"])
+        .drop(columns="_method_order")
+        .reset_index(drop=True)
+    )
+
+
+def _strict_records(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for row in frame.to_dict(orient="records"):
+        clean: dict[str, Any] = {}
+        for key, value in row.items():
+            try:
+                missing = bool(pd.isna(value))
+            except (TypeError, ValueError):
+                missing = False
+            clean[str(key)] = None if missing else json_safe(value)
+        records.append(clean)
+    return records
+
+
+def _route_status(rows: pd.DataFrame, empty_status: str) -> str:
+    if rows.empty:
+        return empty_status
+    statuses = rows["prediction_status"].astype(str)
+    if statuses.eq("OK").all():
+        return "OK"
+    if statuses.eq("OK").any():
+        return "PARTIAL"
+    unique = sorted(set(statuses))
+    return unique[0] if len(unique) == 1 else "UNAVAILABLE"
+
+
+class TechnicalV2Pipeline:
+    def __init__(self, artifact_root: str | Path) -> None:
+        self.artifact_root = Path(artifact_root)
+
+    @staticmethod
+    def _validate_binding(
+        rows: pd.DataFrame | None,
+        *,
+        method: str,
+        as_of_trade_date: str,
+    ) -> pd.DataFrame:
+        if rows is None:
+            return pd.DataFrame()
+        frame = rows.copy()
+        if frame.empty:
+            return frame
+        required = {
+            "entity_type",
+            "entity_id",
+            "as_of_trade_date",
+            "horizon",
+            "method",
+            "prediction_status",
+        }
+        if missing := sorted(required.difference(frame.columns)):
+            raise ContractError(f"{method} prediction rows missing columns: {', '.join(missing)}")
+        if not frame["method"].astype(str).eq(method).all():
+            raise ArtifactMismatch(f"{method} route contains another method")
+        if not frame["as_of_trade_date"].map(_compact_date).eq(as_of_trade_date).all():
+            raise ArtifactMismatch(f"{method} route belongs to another as-of date")
+        keys = ["entity_type", "entity_id", "as_of_trade_date", "horizon", "method"]
+        if frame.duplicated(keys).any():
+            raise ArtifactMismatch(f"{method} route contains duplicate prediction keys")
+        return frame
+
+    def _ensure_run_manifest(self, manifest: dict[str, Any]) -> tuple[Path, str, dict[str, Any]]:
+        path = self.artifact_root / str(manifest["run_id"]) / "run_manifest.json"
+        if path.exists():
+            try:
+                existing = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise ArtifactMismatch(f"cannot read existing run manifest: {path}") from exc
+            for key in (
+                "run_id",
+                "as_of_trade_date",
+                "information_cutoff",
+                "mode",
+                "data_source_mode",
+                "data_hash",
+                "config_hash",
+                "code_hash",
+            ):
+                if existing.get(key) != manifest.get(key):
+                    raise ArtifactMismatch(f"run manifest binding changed: {key}")
+            return path, sha256_json(existing), existing
+        path, manifest_hash = write_run_manifest(self.artifact_root, manifest)
+        return path, manifest_hash, manifest
+
+    def _write_prediction_rows(self, run_id: str, method: str, rows: pd.DataFrame) -> str | None:
+        if rows.empty:
+            return None
+        row_hashes: list[str] = []
+        for row in _strict_records(rows):
+            key = {
+                name: row.get(name)
+                for name in ("entity_type", "entity_id", "as_of_trade_date", "horizon", "method")
+            }
+            filename = f"{sha256_json(key)}.json"
+            path = self.artifact_root / run_id / "predictions" / method / filename
+            row_hashes.append(write_immutable_json(path, row))
+        return sha256_json(sorted(row_hashes))
+
+    def run(
+        self,
+        *,
+        run_id: str,
+        as_of_trade_date: Any,
+        information_cutoff: str,
+        mode: str,
+        data_source_mode: str,
+        data_hash: str,
+        config_hash: str,
+        code_hash: str,
+        universe: pd.DataFrame,
+        formula_predictions: pd.DataFrame,
+        jev_predictions: pd.DataFrame | None = None,
+    ) -> PipelineRunResult:
+        run_id = str(run_id or "").strip()
+        as_of = _compact_date(as_of_trade_date)
+        hashes = {"data_hash": data_hash, "config_hash": config_hash, "code_hash": code_hash}
+        if not run_id or not as_of or not all(str(value or "").strip() for value in hashes.values()):
+            raise ContractError("pipeline run requires run_id, as_of, and data/config/code hashes")
+        formula = self._validate_binding(
+            formula_predictions,
+            method="formula",
+            as_of_trade_date=as_of,
+        )
+        jev = self._validate_binding(
+            jev_predictions,
+            method="jev",
+            as_of_trade_date=as_of,
+        )
+        run_manifest = {
+            "schema_version": "technical-v2-run.v1",
+            "run_id": run_id,
+            "as_of_trade_date": as_of,
+            "information_cutoff": str(information_cutoff),
+            "mode": str(mode),
+            "data_source_mode": str(data_source_mode),
+            **hashes,
+            "generated_at": pd.Timestamp.now(tz="UTC").isoformat(),
+        }
+        _, run_manifest_hash, recorded_run = self._ensure_run_manifest(run_manifest)
+        formula_hash = self._write_prediction_rows(run_id, "formula", formula)
+        jev_hash = self._write_prediction_rows(run_id, "jev", jev)
+        provided_frames = [frame for frame in (formula, jev) if not frame.empty]
+        provided = (
+            pd.concat(provided_frames, ignore_index=True)
+            if provided_frames
+            else pd.DataFrame()
+        )
+        jev_missing_status = "PENDING" if jev.empty else "NOT_EVALUATED"
+        coverage = build_prediction_contract(
+            universe,
+            provided,
+            as_of_trade_date=as_of,
+            missing_status_by_method={"formula": "NOT_EVALUATED", "jev": jev_missing_status},
+        )
+        coverage_records = _strict_records(coverage)
+        coverage_hash = sha256_json(coverage_records)
+        coverage_path = self.artifact_root / run_id / "coverage" / f"{coverage_hash}.json"
+        write_immutable_json(
+            coverage_path,
+            {
+                "schema_version": "technical-v2-coverage.v1",
+                "run_id": run_id,
+                "as_of_trade_date": as_of,
+                "rows": coverage_records,
+            },
+        )
+        formula_coverage = coverage.loc[coverage["method"].eq("formula")]
+        jev_coverage = coverage.loc[coverage["method"].eq("jev")]
+        routes = {
+            "formula": {
+                "status": _route_status(formula_coverage, "NOT_EVALUATED"),
+                "recorded_rows": len(formula),
+                "artifact_hash": formula_hash,
+            },
+            "jev": {
+                "status": _route_status(jev_coverage, "PENDING"),
+                "recorded_rows": len(jev),
+                "artifact_hash": jev_hash,
+            },
+        }
+        valid_rows = int(coverage["prediction_status"].astype(str).eq("OK").sum())
+        publication = write_publication_manifest(
+            self.artifact_root,
+            {
+                "schema_version": "technical-v2-publication.v1",
+                "run_id": run_id,
+                "as_of_trade_date": as_of,
+                "information_cutoff": recorded_run["information_cutoff"],
+                "mode": recorded_run["mode"],
+                "data_source_mode": recorded_run["data_source_mode"],
+                **hashes,
+                "run_manifest_hash": run_manifest_hash,
+                "coverage_hash": coverage_hash,
+                "coverage_rows": len(coverage),
+                "valid_prediction_rows": valid_rows,
+                "routes": routes,
+            },
+        )
+        publication_id = str(publication["publication_id"])
+        return PipelineRunResult(
+            run_id=run_id,
+            publication_id=publication_id,
+            manifest_hash=str(publication["manifest_hash"]),
+            manifest_path=self.artifact_root / "publications" / f"{publication_id}.json",
+            coverage_rows=int(publication["coverage_rows"]),
+            valid_prediction_rows=int(publication["valid_prediction_rows"]),
+            route_statuses={
+                method: str(values["status"])
+                for method, values in publication["routes"].items()
+            },
+        )

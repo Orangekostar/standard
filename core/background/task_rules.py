@@ -40,7 +40,28 @@ def _worker_is_healthy(
 
 
 def snapshot_is_successful(snapshot: dict[str, Any] | None) -> bool:
-    return isinstance(snapshot, dict) and str(snapshot.get("status", "") or "") == "ok"
+    return isinstance(snapshot, dict) and str(snapshot.get("status", "") or "") in {
+        "ok",
+        "OK",
+        "PARTIAL",
+    }
+
+
+def dependency_snapshot_matches(
+    snapshot: dict[str, Any] | None,
+    expected: dict[str, Any],
+) -> bool:
+    if not snapshot_is_successful(snapshot):
+        return False
+    payload = snapshot.get("payload") if isinstance(snapshot, dict) else None
+    if not isinstance(payload, dict) or not str(payload.get("artifact_id") or ""):
+        return False
+    for key in ("run_id", "as_of_trade_date", "data_hash"):
+        actual = str(payload.get(key) or "").replace("-", "") if key == "as_of_trade_date" else str(payload.get(key) or "")
+        wanted = str(expected.get(key) or "").replace("-", "") if key == "as_of_trade_date" else str(expected.get(key) or "")
+        if not wanted or actual != wanted:
+            return False
+    return True
 
 
 def should_write_error_snapshot(previous_snapshot: dict[str, Any] | None) -> bool:
