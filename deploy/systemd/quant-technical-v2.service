@@ -1,0 +1,19 @@
+[Unit]
+Description=Technical V2 scheduled research worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/standard
+Environment=PYTHONUNBUFFERED=1
+Environment=DATA_MODE=real
+EnvironmentFile=-%h/standard/.env
+ExecStart=%h/standard/.venv/bin/python -m core.background.precompute_worker --profile technical_v2 --poll-seconds 5 --max-concurrency 3
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+UMask=0077
+
+[Install]
+WantedBy=default.target

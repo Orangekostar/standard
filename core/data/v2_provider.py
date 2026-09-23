@@ -152,6 +152,7 @@ class RealV2Provider:
                 "exchange": codes.str.rsplit(".", n=1).str[-1].map({"SH": "SSE", "SZ": "SZSE", "BJ": "BSE"}),
                 "listing_board": codes.map(classify_listing_board),
                 "name": _optional_series(raw, "name"),
+                "industry": _optional_series(raw, "industry"),
                 "list_date": _optional_series(raw, "list_date"),
                 "delist_date": _optional_series(raw, "delist_date"),
                 "listing_status": _optional_series(raw, "list_status", "L"),

@@ -459,6 +459,28 @@ class V2Store:
             update_columns=("adj_factor", "source", "retrieved_at"),
         )
 
+    def read_adjustments(
+        self,
+        start_date: str,
+        end_date: str,
+        codes: Iterable[str] | None = None,
+    ) -> pd.DataFrame:
+        params: list[Any] = [str(start_date), str(end_date)]
+        code_values = [str(code) for code in (codes or [])]
+        code_clause = ""
+        if code_values:
+            code_clause = f" AND code IN ({','.join('?' for _ in code_values)})"
+            params.extend(code_values)
+        query = (
+            "SELECT * FROM adjustments WHERE date >= ? AND date <= ?"
+            f"{code_clause} ORDER BY code, date, retrieved_at, source_version"
+        )
+        with closing(self._connect()) as conn:
+            frame = pd.read_sql_query(query, conn, params=params)
+        if frame.empty:
+            return frame
+        return frame.drop_duplicates(["code", "date"], keep="last").reset_index(drop=True)
+
     def upsert_trading_status(self, frame: pd.DataFrame) -> int:
         columns = [
             "code",
