@@ -92,7 +92,7 @@ class RealV2Provider:
             import tushare as ts
 
             self._transport = ts.pro_api(self.token)
-        except Exception:
+        except Exception:  # noqa: BLE001 - provider clients expose heterogeneous exceptions
             return None
         return self._transport
 
@@ -111,7 +111,7 @@ class RealV2Provider:
             return self._unavailable()
         try:
             raw = api.daily(trade_date=str(trade_date).replace("-", ""))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - normalize provider failures at the boundary
             return ProviderResult("ERROR", pd.DataFrame(), "real", "PROVIDER_ERROR", str(exc))
         if raw is None or raw.empty:
             return ProviderResult("NO_DATA", pd.DataFrame(), "real", "EMPTY_RESPONSE", "daily returned no rows")
@@ -123,9 +123,9 @@ class RealV2Provider:
                 "real",
                 "TRUNCATION_SUSPECTED",
                 "daily response reached the documented 6000-row limit",
-                {"rows": int(len(raw)), "limit": 6000},
+                {"rows": len(raw), "limit": 6000},
             )
-        return ProviderResult("OK", normalized, "real", details={"rows": int(len(raw))})
+        return ProviderResult("OK", normalized, "real", details={"rows": len(raw)})
 
     def instruments(self, as_of: str | None = None) -> ProviderResult:
         api = self._api()
@@ -137,7 +137,7 @@ class RealV2Provider:
                 list_status="L",
                 fields="ts_code,symbol,name,area,industry,market,list_date,delist_date,list_status",
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - normalize provider failures at the boundary
             return ProviderResult("ERROR", pd.DataFrame(), "real", "PROVIDER_ERROR", str(exc))
         raw = frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame()
         if raw.empty:
@@ -164,7 +164,7 @@ class RealV2Provider:
             }
         )
         frame = frame.drop_duplicates(["code", "valid_from", "source_version"], keep="last").reset_index(drop=True)
-        return ProviderResult("OK", frame, "real", details={"rows": int(len(frame))})
+        return ProviderResult("OK", frame, "real", details={"rows": len(frame)})
 
     def calendar(self, exchange: str, start_date: str, end_date: str) -> ProviderResult:
         api = self._api()
@@ -176,7 +176,7 @@ class RealV2Provider:
                 start_date=str(start_date).replace("-", ""),
                 end_date=str(end_date).replace("-", ""),
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - normalize provider failures at the boundary
             return ProviderResult("ERROR", pd.DataFrame(), "real", "PROVIDER_ERROR", str(exc))
         if raw is None or raw.empty:
             return ProviderResult("NO_DATA", pd.DataFrame(), "real", "EMPTY_RESPONSE", "trade_cal returned no rows")
@@ -243,7 +243,7 @@ class RealV2Provider:
                 "real",
                 "TRUNCATION_SUSPECTED",
                 "stk_limit response reached the documented 5800-row limit",
-                {"rows": int(len(result.frame)), "limit": 5800},
+                {"rows": len(result.frame), "limit": 5800},
             )
         return result
 
@@ -259,7 +259,7 @@ class RealV2Provider:
             for is_new in ("Y", "N"):
                 try:
                     raw = api.index_member_all(l1_code=l1_code, is_new=is_new)
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 - continue independent provider partitions
                     failures.append({"l1_code": l1_code, "is_new": is_new, "error": str(exc)})
                     continue
                 if raw is None or raw.empty:
@@ -304,6 +304,50 @@ class RealV2Provider:
             {"failures": failures, "limit_hits": limit_hits},
         )
 
+    def sector_classifications(self) -> ProviderResult:
+        api = self._api()
+        if api is None:
+            return self._unavailable()
+        try:
+            raw = api.index_classify(level="L1", src="SW2021")
+        except Exception as exc:  # noqa: BLE001 - normalize provider failures at the boundary
+            return ProviderResult("ERROR", pd.DataFrame(), "real", "PROVIDER_ERROR", str(exc))
+        if raw is None or raw.empty:
+            return ProviderResult(
+                "NO_DATA",
+                pd.DataFrame(),
+                "real",
+                "EMPTY_RESPONSE",
+                "index_classify returned no SW2021 L1 rows",
+            )
+        if "index_code" not in raw.columns:
+            return ProviderResult(
+                "ERROR",
+                pd.DataFrame(),
+                "real",
+                "SCHEMA_MISMATCH",
+                "index_classify response lacks index_code",
+            )
+        frame = pd.DataFrame(
+            {
+                "namespace": "SW_L1",
+                "sector_id": raw["index_code"].astype(str),
+                "sector_name": _optional_series(raw, "industry_name", "").fillna("").astype(str),
+                "level": _optional_series(raw, "level", "L1").fillna("L1").astype(str),
+                "source": "TUSHARE_INDEX_CLASSIFY",
+                "source_version": "tushare-index-classify-sw2021-v1",
+                "retrieved_at": pd.Timestamp.now(tz="UTC").isoformat(),
+            }
+        ).drop_duplicates("sector_id", keep="last")
+        status = "PARTIAL" if len(raw) >= 1000 else "OK"
+        return ProviderResult(
+            status,
+            frame.reset_index(drop=True),
+            "real",
+            "TRUNCATION_SUSPECTED" if status == "PARTIAL" else "",
+            details={"rows": len(frame), "level": "L1", "src": "SW2021"},
+        )
+
     def suspensions(self, trade_date: str) -> ProviderResult:
         api = self._api()
         if api is None:
@@ -316,7 +360,7 @@ class RealV2Provider:
         for suspend_type in ("S", "R"):
             try:
                 raw = api.suspend_d(trade_date=compact_date, suspend_type=suspend_type)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - continue independent provider partitions
                 failures.append({"suspend_type": suspend_type, "error": str(exc)})
                 continue
             if raw is None or raw.empty:
@@ -374,7 +418,7 @@ class RealV2Provider:
         for code in sorted({normalize_ts_code(value) for value in ts_codes}):
             try:
                 raw = api.dividend(ts_code=code)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - continue independent provider partitions
                 failures.append({"ts_code": code, "error": str(exc)})
                 continue
             if raw is None or raw.empty:
@@ -387,7 +431,7 @@ class RealV2Provider:
                     str(record.get(key) or "")
                     for key in ("ann_date", "record_date", "ex_date", "pay_date", "div_listdate", "div_proc")
                 )
-                event_id = hashlib.sha256(f"{record_code}|{identity}".encode("utf-8")).hexdigest()
+                event_id = hashlib.sha256(f"{record_code}|{identity}".encode()).hexdigest()
                 share_ratio = _decimal_text(record.get("stk_div"))
                 cash_per_share = _decimal_text(record.get("cash_div_tax"))
                 event_type = "DIVIDEND_AND_SHARE" if _positive_decimal(share_ratio) and _positive_decimal(cash_per_share) else ("SHARE_ACTION" if _positive_decimal(share_ratio) else "CASH_DIVIDEND")
@@ -446,7 +490,7 @@ class RealV2Provider:
         fields = "trade_date,ts_code,name,industry,list_date"
         try:
             raw = api.bak_basic(trade_date=compact_date, fields=fields)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - normalize provider failures at the boundary
             return ProviderResult("ERROR", pd.DataFrame(), "real", "PROVIDER_ERROR", str(exc))
         if raw is None or raw.empty:
             return ProviderResult("NO_DATA", pd.DataFrame(), "real", "EMPTY_RESPONSE")
@@ -472,7 +516,7 @@ class RealV2Provider:
             return self._unavailable()
         try:
             frame = getattr(api, method)(trade_date=str(trade_date).replace("-", ""))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - normalize provider failures at the boundary
             return ProviderResult("ERROR", pd.DataFrame(), "real", "PROVIDER_ERROR", str(exc))
         out = frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame()
         if not out.empty:
@@ -490,10 +534,12 @@ class DemoV2Provider:
 
     def daily(self, trade_date: str) -> ProviderResult:
         compact_date = str(trade_date).replace("-", "")
-        digest = hashlib.sha256(f"{self.seed}|{compact_date}".encode("utf-8")).digest()
+        digest = hashlib.sha256(f"{self.seed}|{compact_date}".encode()).digest()
         rng = np.random.default_rng(int.from_bytes(digest[:8], "big"))
         rows: list[dict[str, Any]] = []
-        for index, code in enumerate(("000001.SZ", "300001.SZ", "600000.SH", "688001.SH")):
+        for index, code in enumerate(
+            ("000001.SZ", "000002.SZ", "300001.SZ", "600000.SH", "601398.SH", "688001.SH")
+        ):
             close = 10.0 + index * 2.0 + float(rng.normal(0.0, 0.2))
             rows.append(
                 {

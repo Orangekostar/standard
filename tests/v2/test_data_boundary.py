@@ -46,6 +46,12 @@ class _MembershipTransport:
             ]
         )
 
+    def index_classify(self, **kwargs):
+        self.calls.append(dict(kwargs))
+        return pd.DataFrame(
+            [{"index_code": "801010.SI", "industry_name": "Finance", "level": "L1"}]
+        )
+
 
 class _MetadataTransport:
     def stock_basic(self, **kwargs):
@@ -207,6 +213,16 @@ class V2ProviderBoundaryTest(unittest.TestCase):
         self.assertEqual([call["is_new"] for call in transport.calls], ["Y", "N"])
         self.assertEqual(set(result.frame["history_mode"]), {"RECONSTRUCTED_PIT"})
         self.assertEqual(set(result.frame["sector_id"]), {"801010.SI"})
+
+    def test_sector_classification_uses_frozen_sw2021_level_one_arguments(self) -> None:
+        transport = _MembershipTransport()
+
+        result = RealV2Provider(token="configured", transport=transport).sector_classifications()
+
+        self.assertEqual(result.status, "OK")
+        self.assertEqual(transport.calls, [{"level": "L1", "src": "SW2021"}])
+        self.assertEqual(result.frame.loc[0, "sector_id"], "801010.SI")
+        self.assertEqual(result.frame.loc[0, "namespace"], "SW_L1")
 
     def test_execution_metadata_endpoints_use_documented_parameters_and_whitelist_columns(self) -> None:
         provider = RealV2Provider(token="configured", transport=_MetadataTransport())

@@ -129,6 +129,33 @@ class CliV2Test(unittest.TestCase):
             )
             store.upsert_daily_raw(daily)
 
+            store.upsert_sync_audits(
+                [
+                    {
+                        "exchange": "SSE",
+                        "date": "20260922",
+                        "source_version": "fixture-sync-v1",
+                        "expected_instruments": 1,
+                        "observed_rows": 1,
+                        "known_non_trading_rows": 0,
+                        "coverage": 1.0,
+                        "status": "COMPLETE",
+                        "details": {},
+                    },
+                    {
+                        "exchange": "SSE",
+                        "date": "20260923",
+                        "source_version": "fixture-sync-v1",
+                        "expected_instruments": 1,
+                        "observed_rows": 0,
+                        "known_non_trading_rows": 0,
+                        "coverage": 0.0,
+                        "status": "PARTIAL",
+                        "details": {},
+                    },
+                ]
+            )
+
             resolved = resolve_latest_as_of(
                 store,
                 now=pd.Timestamp("2026-09-23T16:11:00", tz="Asia/Shanghai"),
@@ -187,14 +214,94 @@ class CliV2Test(unittest.TestCase):
                 "--methods",
                 "formula",
             )
+            reanalyzed = run_cli(
+                "analyze",
+                *common,
+                "--as-of",
+                "20260922",
+                "--methods",
+                "formula",
+            )
+            appended = run_cli(
+                "analyze",
+                *common,
+                "--as-of",
+                "20260922",
+                "--methods",
+                "formula,jev",
+            )
+
+            analysis_payload = json.loads(analyzed.stdout)
+            repeated_payload = json.loads(reanalyzed.stdout)
+            run_id = analysis_payload["run_id"]
+            coverage_path = next((artifact_root / run_id / "coverage").glob("*.json"))
+            coverage_rows = json.loads(coverage_path.read_text(encoding="utf-8"))["rows"]
+            store = V2Store(db_path, data_mode="demo")
+            persisted_predictions = store.read_prediction_rows(run_id=run_id)
+            persisted_features = store.read_feature_rows(run_id=run_id)
+            persisted_runs = store.read_analysis_runs()
 
         self.assertEqual(synced.returncode, 0, synced.stderr)
         self.assertEqual(analyzed.returncode, 0, analyzed.stderr)
+        self.assertEqual(reanalyzed.returncode, 0, reanalyzed.stderr)
+        self.assertEqual(appended.returncode, 0, appended.stderr)
         payload = json.loads(analyzed.stdout)
+        appended_payload = json.loads(appended.stdout)
+        self.assertEqual(repeated_payload["run_id"], payload["run_id"])
+        self.assertEqual(repeated_payload["publication_id"], payload["publication_id"])
+        self.assertEqual(appended_payload["run_id"], payload["run_id"])
+        self.assertNotEqual(appended_payload["publication_id"], payload["publication_id"])
         self.assertEqual(payload["formula_status"], "OK")
-        self.assertEqual(payload["formula_valid_rows"], 12)
-        self.assertEqual(payload["feature_rows"], 4)
+        self.assertEqual(payload["formula_valid_rows"], 21)
+        self.assertEqual(payload["feature_rows"], 6)
+        self.assertEqual(payload["sector_feature_rows"], 1)
+        self.assertEqual(payload["coverage_rows"], 42)
         self.assertEqual(payload["jev_status"], "NOT_REQUESTED")
+        self.assertEqual(appended_payload["jev_status"], "DEMO_ANALYZE_NETWORK_DISABLED")
+        self.assertEqual(len(coverage_rows), 42)
+        self.assertEqual({row["entity_type"] for row in coverage_rows}, {"stock", "sector"})
+        required = {
+            "schema_version",
+            "run_id",
+            "information_cutoff",
+            "earliest_entry_date",
+            "target_definition_version",
+            "feature_coverage",
+            "evidence_status",
+            "factor_values",
+            "risk_metrics",
+            "action_blockers",
+            "order_status",
+        }
+        self.assertTrue(required.issubset(coverage_rows[0]))
+        self.assertEqual(len(persisted_predictions), 42)
+        self.assertGreaterEqual(len(persisted_features), 131)
+        self.assertEqual(persisted_runs["run_id"].tolist(), [run_id])
+
+    def test_demo_sync_only_fetches_missing_sessions_unless_forced(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            common = (
+                "--mode",
+                "demo",
+                "--db-path",
+                str(root / "demo.db"),
+                "--artifact-root",
+                str(root / "artifacts"),
+                "--history-sessions",
+                "5",
+                "--as-of",
+                "20260922",
+            )
+            first = run_cli("sync", *common)
+            second = run_cli("sync", *common)
+            forced = run_cli("sync", *common, "--force-refresh")
+
+        self.assertEqual((first.returncode, second.returncode, forced.returncode), (0, 0, 0))
+        self.assertEqual(json.loads(first.stdout)["sessions_fetched"], 5)
+        self.assertEqual(json.loads(second.stdout)["sessions_fetched"], 0)
+        self.assertEqual(json.loads(second.stdout)["daily_rows"], 0)
+        self.assertEqual(json.loads(forced.stdout)["sessions_fetched"], 5)
 
     def test_release_manifest_detects_changed_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

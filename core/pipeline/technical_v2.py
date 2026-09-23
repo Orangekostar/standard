@@ -686,6 +686,7 @@ class TechnicalV2Pipeline:
         config_hash: str,
         code_hash: str,
         universe: pd.DataFrame,
+        sector_universe: pd.DataFrame | None = None,
         formula_predictions: pd.DataFrame,
         jev_predictions: pd.DataFrame | None = None,
     ) -> PipelineRunResult:
@@ -724,12 +725,37 @@ class TechnicalV2Pipeline:
             else pd.DataFrame()
         )
         jev_missing_status = "PENDING" if jev.empty else "NOT_EVALUATED"
-        coverage = build_prediction_contract(
-            universe,
-            provided,
-            as_of_trade_date=as_of,
-            missing_status_by_method={"formula": "NOT_EVALUATED", "jev": jev_missing_status},
+        coverage_frames = [
+            build_prediction_contract(
+                universe,
+                provided.loc[provided["entity_type"].astype(str).eq("stock")] if not provided.empty else provided,
+                as_of_trade_date=as_of,
+                entity_type="stock",
+                missing_status_by_method={"formula": "NOT_EVALUATED", "jev": jev_missing_status},
+            )
+        ]
+        sectors = sector_universe if sector_universe is not None else pd.DataFrame(columns=["entity_id"])
+        sector_supplied = (
+            provided.loc[provided["entity_type"].astype(str).eq("sector")]
+            if not provided.empty
+            else provided
         )
+        if not sectors.empty:
+            coverage_frames.append(
+                build_prediction_contract(
+                    sectors,
+                    sector_supplied,
+                    as_of_trade_date=as_of,
+                    entity_type="sector",
+                    missing_status_by_method={"formula": "NOT_EVALUATED", "jev": jev_missing_status},
+                )
+            )
+        elif not sector_supplied.empty:
+            raise ArtifactMismatch("sector predictions require a frozen sector universe")
+        coverage = pd.concat(coverage_frames, ignore_index=True, sort=False)
+        coverage = coverage.sort_values(
+            ["entity_type", "entity_id", "method", "horizon"]
+        ).reset_index(drop=True)
         coverage_records = _strict_records(coverage)
         coverage_hash = sha256_json(coverage_records)
         coverage_path = self.artifact_root / run_id / "coverage" / f"{coverage_hash}.json"

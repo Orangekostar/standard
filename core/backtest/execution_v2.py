@@ -233,6 +233,7 @@ def allocate_orders(
                     None,
                     candidate.get("planned_exit_date"),
                     sector_id=str(candidate.get("sector_id") or holding.get("sector_id") or "UNKNOWN"),
+                    reason_codes=tuple(str(value) for value in candidate.get("reason_codes", ())),
                 )
                 orders.append(order)
                 gross_cny = max(Decimal(0), gross_cny - reference * quantity)
@@ -242,7 +243,8 @@ def allocate_orders(
         if str(candidate.get("prediction_status")) != "OK" or not bool(candidate.get("trade_eligible")):
             reasons.append("NOT_TRADE_ELIGIBLE")
         edge = _decimal(candidate.get("expected_net_edge"))
-        if edge is None or edge <= Decimal("0.001"):
+        edge_required = not bool(candidate.get("allow_without_return_estimate", False))
+        if edge_required and (edge is None or edge <= Decimal("0.001")):
             reasons.append("NET_EDGE_BELOW_MINIMUM")
         if exposure_cap <= 0:
             reasons.append("MARKET_EXPOSURE_CAP_ZERO")
@@ -334,17 +336,58 @@ def _persist_order(conn: Any, order: PaperOrder) -> str:
         stored = tuple(existing[key] for key in ("run_id", "account_id", "code", "side", "quantity", "earliest_trade_date", "price_ceiling_floor"))
         if stored != immutable:
             raise ContractError("paper order definition is immutable")
-        return str(existing["status"])
+        status = str(existing["status"])
+    else:
+        conn.execute(
+            """
+            INSERT INTO paper_orders(
+                order_id, run_id, account_id, code, side, quantity,
+                earliest_trade_date, price_ceiling_floor, status, reason_codes_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
+            """,
+            (*((order.order_id,) + immutable), canonical_json(order.reason_codes)),
+        )
+        status = "PENDING"
+    details = (
+        str(order.reference_price),
+        _date(order.planned_exit_date) or None,
+        str(order.planned_stop_price) if order.planned_stop_price is not None else None,
+        order.sector_id,
+        canonical_json({}),
+    )
+    recorded = conn.execute(
+        """
+        SELECT reference_price, planned_exit_date, planned_stop_price,
+               sector_id, payload_json
+        FROM paper_order_details WHERE order_id = ?
+        """,
+        (order.order_id,),
+    ).fetchone()
+    if recorded is not None and tuple(recorded) != details:
+        raise ContractError("paper order details are immutable")
     conn.execute(
         """
-        INSERT INTO paper_orders(
-            order_id, run_id, account_id, code, side, quantity,
-            earliest_trade_date, price_ceiling_floor, status, reason_codes_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
+        INSERT OR IGNORE INTO paper_order_details(
+            order_id, reference_price, planned_exit_date,
+            planned_stop_price, sector_id, payload_json
+        ) VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (*((order.order_id,) + immutable), canonical_json(order.reason_codes)),
+        (order.order_id, *details),
     )
-    return "PENDING"
+    return status
+
+
+def persist_orders(store: V2Store, orders: Sequence[PaperOrder]) -> int:
+    inserted = 0
+    with store._write_connection() as conn:
+        for order in orders:
+            existed = conn.execute(
+                "SELECT 1 FROM paper_orders WHERE order_id = ?",
+                (order.order_id,),
+            ).fetchone()
+            _persist_order(conn, order)
+            inserted += int(existed is None)
+    return inserted
 
 
 def _set_order_status(conn: Any, order_id: str, status: str, reasons: Sequence[str]) -> None:

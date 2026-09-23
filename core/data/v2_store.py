@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any
@@ -10,7 +10,7 @@ import pandas as pd
 
 from core.technical_v2.contracts import ContractError, canonical_json
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 REQUIRED_TABLES = {
     "schema_migrations",
     "instrument_versions",
@@ -30,6 +30,12 @@ REQUIRED_TABLES = {
     "paper_orders",
     "paper_fills",
     "paper_corporate_action_ledger",
+    "label_rows",
+    "evaluation_rows",
+    "paper_valuations",
+    "paper_decisions",
+    "paper_order_details",
+    "sync_audits",
 }
 
 
@@ -282,6 +288,107 @@ CREATE INDEX IF NOT EXISTS idx_prediction_run ON prediction_rows(run_id, method,
 """
 
 
+_MIGRATION_2 = """
+CREATE TABLE IF NOT EXISTS label_rows (
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    as_of_trade_date TEXT NOT NULL,
+    horizon INTEGER NOT NULL,
+    target_definition_version TEXT NOT NULL,
+    label_end_date TEXT,
+    label_status TEXT NOT NULL,
+    target_class TEXT,
+    realized_return REAL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (
+        entity_type, entity_id, as_of_trade_date, horizon,
+        target_definition_version
+    )
+);
+
+CREATE TABLE IF NOT EXISTS evaluation_rows (
+    run_id TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    as_of_trade_date TEXT NOT NULL,
+    horizon INTEGER NOT NULL,
+    method TEXT NOT NULL,
+    label_end_date TEXT,
+    evaluation_status TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    first_evaluated_at TEXT NOT NULL,
+    PRIMARY KEY (
+        run_id, entity_type, entity_id, as_of_trade_date, horizon, method
+    )
+);
+
+CREATE TABLE IF NOT EXISTS paper_valuations (
+    account_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    nav_cents INTEGER,
+    cash_cents INTEGER NOT NULL,
+    market_value_cents INTEGER,
+    status TEXT NOT NULL,
+    reason_codes_json TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    recorded_at TEXT NOT NULL,
+    PRIMARY KEY (account_id, date)
+);
+
+CREATE TABLE IF NOT EXISTS sync_audits (
+    exchange TEXT NOT NULL,
+    date TEXT NOT NULL,
+    source_version TEXT NOT NULL,
+    expected_instruments INTEGER NOT NULL,
+    observed_rows INTEGER NOT NULL,
+    known_non_trading_rows INTEGER NOT NULL,
+    coverage REAL NOT NULL,
+    status TEXT NOT NULL,
+    details_json TEXT NOT NULL DEFAULT '{}',
+    recorded_at TEXT NOT NULL,
+    PRIMARY KEY (exchange, date, source_version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_labels_maturity
+    ON label_rows(label_status, label_end_date, horizon);
+CREATE INDEX IF NOT EXISTS idx_evaluations_run
+    ON evaluation_rows(run_id, method, horizon);
+CREATE INDEX IF NOT EXISTS idx_valuations_account
+    ON paper_valuations(account_id, date);
+CREATE INDEX IF NOT EXISTS idx_sync_audits_complete
+    ON sync_audits(exchange, status, date);
+"""
+
+
+_MIGRATION_3 = """
+CREATE TABLE IF NOT EXISTS paper_decisions (
+    decision_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    as_of_trade_date TEXT NOT NULL,
+    method TEXT NOT NULL,
+    status TEXT NOT NULL,
+    reason_codes_json TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    first_recorded_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS paper_order_details (
+    order_id TEXT PRIMARY KEY,
+    reference_price TEXT NOT NULL,
+    planned_exit_date TEXT,
+    planned_stop_price TEXT,
+    sector_id TEXT,
+    payload_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_paper_decisions_account_date
+    ON paper_decisions(account_id, as_of_trade_date);
+"""
+
+
 class V2Store:
     def __init__(self, path: str | Path, data_mode: str = "real") -> None:
         mode = str(data_mode or "").strip().lower()
@@ -304,7 +411,14 @@ class V2Store:
                 "BEGIN IMMEDIATE;\n"
                 + _MIGRATION_1
                 + "\nINSERT OR IGNORE INTO schema_migrations(version, applied_at, summary) "
-                "VALUES (1, CURRENT_TIMESTAMP, 'Initial Technical V2 schema');\nCOMMIT;"
+                "VALUES (1, CURRENT_TIMESTAMP, 'Initial Technical V2 schema');\n"
+                + _MIGRATION_2
+                + "\nINSERT OR IGNORE INTO schema_migrations(version, applied_at, summary) "
+                "VALUES (2, CURRENT_TIMESTAMP, 'Durable labels, evaluations, valuations, and sync audits');\n"
+                + _MIGRATION_3
+                + "\nINSERT OR IGNORE INTO schema_migrations(version, applied_at, summary) "
+                "VALUES (3, CURRENT_TIMESTAMP, 'Auditable paper decisions and reconstructable order details');\n"
+                "COMMIT;"
             )
         return SCHEMA_VERSION
 
@@ -503,6 +617,50 @@ class V2Store:
             update_columns=tuple(column for column in columns if column not in {"code", "date", "source_version"}),
         )
 
+    def read_trading_status(
+        self,
+        start_date: str,
+        end_date: str,
+        codes: Iterable[str] | None = None,
+    ) -> pd.DataFrame:
+        params: list[Any] = [str(start_date), str(end_date)]
+        code_values = [str(code) for code in (codes or [])]
+        code_clause = ""
+        if code_values:
+            code_clause = f" AND code IN ({','.join('?' for _ in code_values)})"
+            params.extend(code_values)
+        with closing(self._connect()) as conn:
+            frame = pd.read_sql_query(
+                "SELECT * FROM trading_status WHERE date >= ? AND date <= ?"
+                f"{code_clause} ORDER BY code, date, retrieved_at, source_version",
+                conn,
+                params=params,
+            )
+        if frame.empty:
+            return frame
+
+        def latest_value(values: pd.Series) -> Any:
+            available = values.dropna()
+            return available.iloc[-1] if not available.empty else None
+
+        value_columns = [
+            "is_suspended",
+            "is_risk_warning",
+            "up_limit",
+            "down_limit",
+            "no_price_limit",
+            "rule_version",
+            "source",
+            "source_version",
+            "retrieved_at",
+        ]
+        return (
+            frame.groupby(["code", "date"], as_index=False, sort=True)[value_columns]
+            .agg(latest_value)
+            .sort_values(["code", "date"])
+            .reset_index(drop=True)
+        )
+
     def upsert_corporate_actions(self, frame: pd.DataFrame) -> int:
         columns = [
             "event_id",
@@ -642,6 +800,459 @@ class V2Store:
     def read_analysis_runs(self) -> pd.DataFrame:
         with closing(self._connect()) as conn:
             return pd.read_sql_query("SELECT * FROM analysis_runs ORDER BY generated_at, run_id", conn)
+
+    def upsert_feature_rows(self, rows: Iterable[Mapping[str, Any]]) -> int:
+        values = []
+        for item in rows:
+            values.append(
+                (
+                    str(item["run_id"]),
+                    str(item["entity_type"]),
+                    str(item["entity_id"]),
+                    str(item["as_of_trade_date"]).replace("-", "")[:8],
+                    str(item["factor_id"]),
+                    item.get("value"),
+                    str(item["status"]),
+                    item.get("reason_code"),
+                    canonical_json(item.get("metadata", {})),
+                )
+            )
+        if not values:
+            return 0
+        with self._write_connection() as conn:
+            conn.executemany(
+                """
+                INSERT INTO feature_rows(
+                    run_id, entity_type, entity_id, as_of_trade_date, factor_id,
+                    value, status, reason_code, metadata_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(run_id, entity_type, entity_id, factor_id) DO UPDATE SET
+                    value=excluded.value, status=excluded.status,
+                    reason_code=excluded.reason_code,
+                    metadata_json=excluded.metadata_json
+                """,
+                values,
+            )
+        return len(values)
+
+    def read_feature_rows(self, run_id: str | None = None) -> pd.DataFrame:
+        query = "SELECT * FROM feature_rows"
+        params: list[Any] = []
+        if run_id is not None:
+            query += " WHERE run_id = ?"
+            params.append(str(run_id))
+        query += " ORDER BY run_id, entity_type, entity_id, factor_id"
+        with closing(self._connect()) as conn:
+            return pd.read_sql_query(query, conn, params=params)
+
+    def write_prediction_rows(self, rows: Iterable[Mapping[str, Any]]) -> int:
+        inserted = 0
+        now = pd.Timestamp.now(tz="UTC").isoformat()
+        with self._write_connection() as conn:
+            for item in rows:
+                key = (
+                    str(item["run_id"]),
+                    str(item["entity_type"]),
+                    str(item["entity_id"]),
+                    int(item["horizon"]),
+                    str(item["method"]),
+                )
+                prediction_status = str(item["prediction_status"])
+                payload_json = canonical_json(item.get("payload", {}))
+                existing = conn.execute(
+                    """
+                    SELECT prediction_status, payload_json FROM prediction_rows
+                    WHERE run_id = ? AND entity_type = ? AND entity_id = ?
+                      AND horizon = ? AND method = ?
+                    """,
+                    key,
+                ).fetchone()
+                if existing is not None:
+                    if tuple(existing) != (prediction_status, payload_json):
+                        raise ContractError("prediction row is immutable and conflicts with first record")
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO prediction_rows(
+                        run_id, entity_type, entity_id, horizon, method,
+                        prediction_status, payload_json, first_recorded_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (*key, prediction_status, payload_json, str(item.get("first_recorded_at") or now)),
+                )
+                inserted += 1
+        return inserted
+
+    def read_prediction_rows(
+        self,
+        run_id: str | None = None,
+        *,
+        method: str | None = None,
+        horizon: int | None = None,
+    ) -> pd.DataFrame:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if run_id is not None:
+            clauses.append("run_id = ?")
+            params.append(str(run_id))
+        if method is not None:
+            clauses.append("method = ?")
+            params.append(str(method))
+        if horizon is not None:
+            clauses.append("horizon = ?")
+            params.append(int(horizon))
+        query = "SELECT * FROM prediction_rows"
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY run_id, entity_type, entity_id, horizon, method"
+        with closing(self._connect()) as conn:
+            return pd.read_sql_query(query, conn, params=params)
+
+    def upsert_model_registry(self, rows: Iterable[Mapping[str, Any]]) -> int:
+        values = []
+        for item in rows:
+            values.append(
+                (
+                    str(item["method"]),
+                    str(item["config_id"]),
+                    str(item["entity_type"]),
+                    int(item["horizon"]),
+                    item.get("model_id"),
+                    item.get("calibration_id"),
+                    item.get("train_start"),
+                    item.get("train_end"),
+                    item.get("calibration_start"),
+                    item.get("calibration_end"),
+                    str(item["status"]),
+                    canonical_json(item.get("payload", {})),
+                )
+            )
+        if not values:
+            return 0
+        with self._write_connection() as conn:
+            conn.executemany(
+                """
+                INSERT INTO model_registry(
+                    method, config_id, entity_type, horizon, model_id,
+                    calibration_id, train_start, train_end, calibration_start,
+                    calibration_end, status, payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(method, config_id, entity_type, horizon) DO UPDATE SET
+                    model_id=excluded.model_id,
+                    calibration_id=excluded.calibration_id,
+                    train_start=excluded.train_start,
+                    train_end=excluded.train_end,
+                    calibration_start=excluded.calibration_start,
+                    calibration_end=excluded.calibration_end,
+                    status=excluded.status,
+                    payload_json=excluded.payload_json
+                """,
+                values,
+            )
+        return len(values)
+
+    def read_model_registry(self) -> pd.DataFrame:
+        with closing(self._connect()) as conn:
+            return pd.read_sql_query(
+                "SELECT * FROM model_registry ORDER BY method, config_id, entity_type, horizon",
+                conn,
+            )
+
+    def upsert_label_rows(self, rows: Iterable[Mapping[str, Any]]) -> int:
+        now = pd.Timestamp.now(tz="UTC").isoformat()
+        values = []
+        for item in rows:
+            values.append(
+                (
+                    str(item["entity_type"]),
+                    str(item["entity_id"]),
+                    str(item["as_of_trade_date"]).replace("-", "")[:8],
+                    int(item["horizon"]),
+                    str(item.get("target_definition_version") or "adjusted-open-t1-to-t1-plus-h.v1"),
+                    item.get("label_end_date"),
+                    str(item["label_status"]),
+                    item.get("target_class"),
+                    item.get("realized_return"),
+                    canonical_json(item.get("payload", {})),
+                    str(item.get("updated_at") or now),
+                )
+            )
+        if not values:
+            return 0
+        with self._write_connection() as conn:
+            conn.executemany(
+                """
+                INSERT INTO label_rows(
+                    entity_type, entity_id, as_of_trade_date, horizon,
+                    target_definition_version, label_end_date, label_status,
+                    target_class, realized_return, payload_json, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(
+                    entity_type, entity_id, as_of_trade_date, horizon,
+                    target_definition_version
+                ) DO UPDATE SET
+                    label_end_date=excluded.label_end_date,
+                    label_status=excluded.label_status,
+                    target_class=excluded.target_class,
+                    realized_return=excluded.realized_return,
+                    payload_json=excluded.payload_json,
+                    updated_at=excluded.updated_at
+                """,
+                values,
+            )
+        return len(values)
+
+    def read_label_rows(self, *, matured_only: bool = False) -> pd.DataFrame:
+        query = "SELECT * FROM label_rows"
+        if matured_only:
+            query += " WHERE label_status = 'OK'"
+        query += " ORDER BY entity_type, entity_id, as_of_trade_date, horizon"
+        with closing(self._connect()) as conn:
+            return pd.read_sql_query(query, conn)
+
+    def write_evaluation_rows(self, rows: Iterable[Mapping[str, Any]]) -> int:
+        inserted = 0
+        now = pd.Timestamp.now(tz="UTC").isoformat()
+        with self._write_connection() as conn:
+            for item in rows:
+                key = (
+                    str(item["run_id"]),
+                    str(item["entity_type"]),
+                    str(item["entity_id"]),
+                    str(item["as_of_trade_date"]).replace("-", "")[:8],
+                    int(item["horizon"]),
+                    str(item["method"]),
+                )
+                label_end_date = item.get("label_end_date")
+                status = str(item["evaluation_status"])
+                payload_json = canonical_json(item.get("payload", {}))
+                existing = conn.execute(
+                    """
+                    SELECT label_end_date, evaluation_status, payload_json
+                    FROM evaluation_rows
+                    WHERE run_id = ? AND entity_type = ? AND entity_id = ?
+                      AND as_of_trade_date = ? AND horizon = ? AND method = ?
+                    """,
+                    key,
+                ).fetchone()
+                expected = (label_end_date, status, payload_json)
+                if existing is not None:
+                    if tuple(existing) != expected:
+                        raise ContractError("evaluation row is immutable and conflicts with first record")
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO evaluation_rows(
+                        run_id, entity_type, entity_id, as_of_trade_date,
+                        horizon, method, label_end_date, evaluation_status,
+                        payload_json, first_evaluated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (*key, label_end_date, status, payload_json, str(item.get("first_evaluated_at") or now)),
+                )
+                inserted += 1
+        return inserted
+
+    def read_evaluation_rows(self, run_id: str | None = None) -> pd.DataFrame:
+        query = "SELECT * FROM evaluation_rows"
+        params: list[Any] = []
+        if run_id is not None:
+            query += " WHERE run_id = ?"
+            params.append(str(run_id))
+        query += " ORDER BY run_id, entity_type, entity_id, as_of_trade_date, horizon, method"
+        with closing(self._connect()) as conn:
+            return pd.read_sql_query(query, conn, params=params)
+
+    def upsert_paper_valuations(self, rows: Iterable[Mapping[str, Any]]) -> int:
+        now = pd.Timestamp.now(tz="UTC").isoformat()
+        values = []
+        for item in rows:
+            values.append(
+                (
+                    str(item["account_id"]),
+                    str(item["date"]).replace("-", "")[:8],
+                    item.get("nav_cents"),
+                    int(item["cash_cents"]),
+                    item.get("market_value_cents"),
+                    str(item["status"]),
+                    canonical_json(item.get("reason_codes", [])),
+                    canonical_json(item.get("payload", {})),
+                    str(item.get("recorded_at") or now),
+                )
+            )
+        if not values:
+            return 0
+        with self._write_connection() as conn:
+            conn.executemany(
+                """
+                INSERT INTO paper_valuations(
+                    account_id, date, nav_cents, cash_cents, market_value_cents,
+                    status, reason_codes_json, payload_json, recorded_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(account_id, date) DO UPDATE SET
+                    nav_cents=excluded.nav_cents,
+                    cash_cents=excluded.cash_cents,
+                    market_value_cents=excluded.market_value_cents,
+                    status=excluded.status,
+                    reason_codes_json=excluded.reason_codes_json,
+                    payload_json=excluded.payload_json,
+                    recorded_at=excluded.recorded_at
+                """,
+                values,
+            )
+        return len(values)
+
+    def read_paper_valuations(self, account_id: str | None = None) -> pd.DataFrame:
+        query = "SELECT * FROM paper_valuations"
+        params: list[Any] = []
+        if account_id is not None:
+            query += " WHERE account_id = ?"
+            params.append(str(account_id))
+        query += " ORDER BY account_id, date"
+        with closing(self._connect()) as conn:
+            return pd.read_sql_query(query, conn, params=params)
+
+    def write_paper_decisions(self, rows: Iterable[Mapping[str, Any]]) -> int:
+        inserted = 0
+        now = pd.Timestamp.now(tz="UTC").isoformat()
+        with self._write_connection() as conn:
+            for item in rows:
+                decision_id = str(item["decision_id"])
+                immutable = (
+                    str(item["run_id"]),
+                    str(item["account_id"]),
+                    str(item["entity_id"]),
+                    str(item["as_of_trade_date"]).replace("-", "")[:8],
+                    str(item["method"]),
+                    str(item["status"]),
+                    canonical_json(item.get("reason_codes", [])),
+                    canonical_json(item.get("payload", {})),
+                )
+                existing = conn.execute(
+                    """
+                    SELECT run_id, account_id, entity_id, as_of_trade_date,
+                           method, status, reason_codes_json, payload_json
+                    FROM paper_decisions WHERE decision_id = ?
+                    """,
+                    (decision_id,),
+                ).fetchone()
+                if existing is not None:
+                    if tuple(existing) != immutable:
+                        raise ContractError("paper decision is immutable and conflicts with first record")
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO paper_decisions(
+                        decision_id, run_id, account_id, entity_id,
+                        as_of_trade_date, method, status, reason_codes_json,
+                        payload_json, first_recorded_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (decision_id, *immutable, str(item.get("first_recorded_at") or now)),
+                )
+                inserted += 1
+        return inserted
+
+    def read_paper_decisions(self, account_id: str | None = None) -> pd.DataFrame:
+        query = "SELECT * FROM paper_decisions"
+        params: list[Any] = []
+        if account_id is not None:
+            query += " WHERE account_id = ?"
+            params.append(str(account_id))
+        query += " ORDER BY as_of_trade_date, account_id, entity_id, decision_id"
+        with closing(self._connect()) as conn:
+            return pd.read_sql_query(query, conn, params=params)
+
+    def upsert_sync_audits(self, rows: Iterable[Mapping[str, Any]]) -> int:
+        now = pd.Timestamp.now(tz="UTC").isoformat()
+        values = []
+        for item in rows:
+            expected = int(item["expected_instruments"])
+            observed = int(item["observed_rows"])
+            non_trading = int(item.get("known_non_trading_rows", 0))
+            coverage = float(item["coverage"])
+            if min(expected, observed, non_trading) < 0 or not 0.0 <= coverage <= 1.0:
+                raise ContractError("sync audit counts or coverage are invalid")
+            values.append(
+                (
+                    str(item["exchange"]),
+                    str(item["date"]).replace("-", "")[:8],
+                    str(item["source_version"]),
+                    expected,
+                    observed,
+                    non_trading,
+                    coverage,
+                    str(item["status"]),
+                    canonical_json(item.get("details", {})),
+                    str(item.get("recorded_at") or now),
+                )
+            )
+        if not values:
+            return 0
+        with self._write_connection() as conn:
+            conn.executemany(
+                """
+                INSERT INTO sync_audits(
+                    exchange, date, source_version, expected_instruments,
+                    observed_rows, known_non_trading_rows, coverage, status,
+                    details_json, recorded_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(exchange, date, source_version) DO UPDATE SET
+                    expected_instruments=excluded.expected_instruments,
+                    observed_rows=excluded.observed_rows,
+                    known_non_trading_rows=excluded.known_non_trading_rows,
+                    coverage=excluded.coverage,
+                    status=excluded.status,
+                    details_json=excluded.details_json,
+                    recorded_at=excluded.recorded_at
+                """,
+                values,
+            )
+        return len(values)
+
+    def read_sync_audits(self, exchange: str | None = None) -> pd.DataFrame:
+        query = "SELECT * FROM sync_audits"
+        params: list[Any] = []
+        if exchange is not None:
+            query += " WHERE exchange = ?"
+            params.append(str(exchange))
+        query += " ORDER BY exchange, date, recorded_at, source_version"
+        with closing(self._connect()) as conn:
+            return pd.read_sql_query(query, conn, params=params)
+
+    def latest_complete_session(self, exchange: str, end_date: str) -> str | None:
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                """
+                SELECT MAX(date) FROM sync_audits
+                WHERE exchange = ? AND date <= ? AND status = 'COMPLETE'
+                """,
+                (str(exchange), str(end_date).replace("-", "")[:8]),
+            ).fetchone()
+        return str(row[0]) if row and row[0] else None
+
+    def missing_sync_sessions(
+        self,
+        exchange: str,
+        sessions: Iterable[str],
+        *,
+        force_refresh: bool = False,
+    ) -> list[str]:
+        normalized = sorted({str(value).replace("-", "")[:8] for value in sessions})
+        if force_refresh or not normalized:
+            return normalized
+        placeholders = ",".join("?" for _ in normalized)
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                f"""
+                SELECT DISTINCT date FROM sync_audits
+                WHERE exchange = ? AND status = 'COMPLETE'
+                  AND date IN ({placeholders})
+                """,
+                (str(exchange), *normalized),
+            ).fetchall()
+        complete = {str(row[0]) for row in rows}
+        return [value for value in normalized if value not in complete]
 
     def create_paper_account(
         self,

@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 from core.data.v2_provider import normalize_daily_frame
-from core.data.v2_store import REQUIRED_TABLES, V2Store
+from core.data.v2_store import REQUIRED_TABLES, SCHEMA_VERSION, V2Store
 from core.technical_v2.contracts import ContractError
 
 
@@ -29,9 +29,168 @@ class V2StoreTest(unittest.TestCase):
             names = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             migrations = conn.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()
 
-        self.assertEqual(version, 1)
+        self.assertEqual(version, SCHEMA_VERSION)
         self.assertTrue(REQUIRED_TABLES.issubset(names))
-        self.assertEqual(migrations, [(1,)])
+        self.assertEqual(migrations, [(1,), (2,), (3,)])
+
+    def test_prediction_rows_are_immutable_but_exact_replay_is_idempotent(self) -> None:
+        self.store.migrate()
+        row = {
+            "run_id": "run-1",
+            "entity_type": "stock",
+            "entity_id": "600000.SH",
+            "horizon": 5,
+            "method": "formula",
+            "prediction_status": "OK",
+            "payload": {"formula_score": 72.5},
+            "first_recorded_at": "2026-09-22T08:00:00Z",
+        }
+
+        self.assertEqual(self.store.write_prediction_rows([row]), 1)
+        self.assertEqual(self.store.write_prediction_rows([row]), 0)
+        with self.assertRaises(ContractError):
+            self.store.write_prediction_rows([{**row, "payload": {"formula_score": 73.0}}])
+        stored = self.store.read_prediction_rows(run_id="run-1")
+        self.assertEqual(len(stored), 1)
+        self.assertEqual(stored.loc[0, "payload_json"], '{"formula_score":72.5}')
+
+    def test_labels_evaluations_and_valuations_are_durable_and_idempotent(self) -> None:
+        self.store.migrate()
+        label = {
+            "entity_type": "stock",
+            "entity_id": "600000.SH",
+            "as_of_trade_date": "20260918",
+            "horizon": 1,
+            "label_end_date": "20260922",
+            "label_status": "OK",
+            "target_class": "UP",
+            "realized_return": 0.01,
+            "payload": {"entry_date": "20260921"},
+        }
+        evaluation = {
+            "run_id": "run-1",
+            "entity_type": "stock",
+            "entity_id": "600000.SH",
+            "as_of_trade_date": "20260918",
+            "horizon": 1,
+            "method": "formula",
+            "label_end_date": "20260922",
+            "evaluation_status": "OK",
+            "payload": {"correct": True},
+        }
+        valuation = {
+            "account_id": "formula-paper",
+            "date": "20260922",
+            "nav_cents": 100_010_000,
+            "cash_cents": 90_000_000,
+            "market_value_cents": 10_010_000,
+            "status": "OK",
+            "reason_codes": [],
+            "payload": {"position_count": 1},
+        }
+
+        self.assertEqual(self.store.upsert_label_rows([label]), 1)
+        self.assertEqual(self.store.upsert_label_rows([label]), 1)
+        self.assertEqual(self.store.write_evaluation_rows([evaluation]), 1)
+        self.assertEqual(self.store.write_evaluation_rows([evaluation]), 0)
+        self.assertEqual(self.store.upsert_paper_valuations([valuation]), 1)
+        self.assertEqual(len(self.store.read_label_rows()), 1)
+        self.assertEqual(len(self.store.read_evaluation_rows()), 1)
+        self.assertEqual(len(self.store.read_paper_valuations("formula-paper")), 1)
+
+    def test_paper_decisions_are_immutable_and_queryable(self) -> None:
+        self.store.migrate()
+        decision = {
+            "decision_id": "decision-1",
+            "run_id": "run-1",
+            "account_id": "formula-paper",
+            "entity_id": "600000.SH",
+            "as_of_trade_date": "20260922",
+            "method": "formula",
+            "status": "BLOCKED",
+            "reason_codes": ["NET_EDGE_BELOW_MINIMUM"],
+            "payload": {"horizon": 5},
+        }
+
+        self.assertEqual(self.store.write_paper_decisions([decision]), 1)
+        self.assertEqual(self.store.write_paper_decisions([decision]), 0)
+        with self.assertRaises(ContractError):
+            self.store.write_paper_decisions(
+                [{**decision, "reason_codes": ["NOT_TRADE_ELIGIBLE"]}]
+            )
+        stored = self.store.read_paper_decisions("formula-paper")
+        self.assertEqual(stored.loc[0, "status"], "BLOCKED")
+
+    def test_feature_and_model_registry_rows_round_trip(self) -> None:
+        self.store.migrate()
+        features = [{
+            "run_id": "run-1",
+            "entity_type": "stock",
+            "entity_id": "600000.SH",
+            "as_of_trade_date": "20260922",
+            "factor_id": "F01",
+            "value": 0.25,
+            "status": "OK",
+            "reason_code": None,
+            "metadata": {"window": 5},
+        }]
+        models = [{
+            "method": "formula",
+            "config_id": "F0_BALANCED",
+            "entity_type": "stock",
+            "horizon": 5,
+            "model_id": None,
+            "calibration_id": None,
+            "train_start": "20240101",
+            "train_end": "20241231",
+            "calibration_start": "20250101",
+            "calibration_end": "20250331",
+            "status": "SELECTED",
+            "payload": {"selection": "frozen"},
+        }]
+
+        self.assertEqual(self.store.upsert_feature_rows(features), 1)
+        self.assertEqual(self.store.upsert_model_registry(models), 1)
+        self.assertEqual(self.store.read_feature_rows("run-1").loc[0, "factor_id"], "F01")
+        self.assertEqual(self.store.read_model_registry().loc[0, "status"], "SELECTED")
+
+    def test_only_complete_sync_audits_are_eligible_for_latest_and_incremental_sync(self) -> None:
+        self.store.migrate()
+        rows = [
+            {
+                "exchange": "SSE",
+                "date": "20260921",
+                "source_version": "sync-v1",
+                "expected_instruments": 100,
+                "observed_rows": 99,
+                "known_non_trading_rows": 1,
+                "coverage": 1.0,
+                "status": "COMPLETE",
+                "details": {},
+            },
+            {
+                "exchange": "SSE",
+                "date": "20260922",
+                "source_version": "sync-v1",
+                "expected_instruments": 100,
+                "observed_rows": 80,
+                "known_non_trading_rows": 0,
+                "coverage": 0.8,
+                "status": "PARTIAL",
+                "details": {"reason": "coverage"},
+            },
+        ]
+
+        self.assertEqual(self.store.upsert_sync_audits(rows), 2)
+        self.assertEqual(self.store.latest_complete_session("SSE", "20260922"), "20260921")
+        self.assertEqual(
+            self.store.missing_sync_sessions("SSE", ["20260921", "20260922"]),
+            ["20260922"],
+        )
+        self.assertEqual(
+            self.store.missing_sync_sessions("SSE", ["20260921", "20260922"], force_refresh=True),
+            ["20260921", "20260922"],
+        )
 
     def test_daily_upsert_is_idempotent_for_code_date_source_version(self) -> None:
         self.store.migrate()

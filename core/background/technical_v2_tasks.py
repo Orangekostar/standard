@@ -68,12 +68,28 @@ class TechnicalV2TaskRunner:
         self,
         handlers: Mapping[str, Callable[[dict[str, Any], bool], Mapping[str, Any]]] | None = None,
     ) -> None:
-        self.handlers = dict(handlers or {})
+        if handlers is None:
+            self.handlers = {
+                task_name: self._default_handler(task_name)
+                for task_name in TECHNICAL_V2_TASKS
+            }
+        else:
+            self.handlers = dict(handlers)
+
+    @staticmethod
+    def _default_handler(
+        task_name: str,
+    ) -> Callable[[dict[str, Any], bool], Mapping[str, Any]]:
+        def handle(params: dict[str, Any], force_refresh: bool) -> Mapping[str, Any]:
+            from scripts.v2 import run_worker_task
+
+            return run_worker_task(task_name, params, force_refresh)
+
+        return handle
 
     def dispatch(self, task_name: str, params: dict[str, Any], force_refresh: bool) -> dict[str, Any]:
         if task_name not in TECHNICAL_V2_DEPENDENCIES:
             raise ContractError(f"unknown Technical V2 task: {task_name}")
-        binding = artifact_binding(params)
         handler = self.handlers.get(task_name)
         if handler is None:
             result: dict[str, Any] = {
@@ -88,6 +104,25 @@ class TechnicalV2TaskRunner:
             result.setdefault("status", "ERROR")
             result.setdefault("code", "")
             result.setdefault("message", "")
+        if task_name == "data_v2_sync":
+            try:
+                binding = artifact_binding(result)
+            except ContractError:
+                if result["status"] in {"OK", "PARTIAL"}:
+                    raise
+                binding = {"run_id": "", "as_of_trade_date": "", "data_hash": ""}
+        else:
+            binding = artifact_binding(params)
+            returned_binding = {
+                key: str(result.pop(key, binding[key]) or "").replace("-", "")
+                if key == "as_of_trade_date"
+                else str(result.pop(key, binding[key]) or "")
+                for key in binding
+            }
+            if returned_binding != binding:
+                raise ContractError("technical V2 task returned a conflicting artifact binding")
+        for key in binding:
+            result.pop(key, None)
         completed = int(result.get("completed_entities", 0) or 0)
         total = int(result.get("total_entities", 0) or 0)
         if completed < 0 or total < 0 or completed > total:

@@ -75,24 +75,46 @@ def load_technical_v2_snapshot(artifact_root: str | Path) -> TechnicalV2Snapshot
     features = pd.DataFrame()
     if feature_path.is_file():
         feature_payload = _read_object(feature_path)
-        if (
-            feature_payload.get("run_id") != run_id
-            or feature_payload.get("as_of_trade_date") != as_of
-            or not isinstance(feature_payload.get("rows"), list)
-        ):
+        if feature_payload.get("run_id") != run_id or feature_payload.get("as_of_trade_date") != as_of:
             raise ArtifactMismatch("feature artifact binding does not match publication")
-        features = pd.DataFrame(feature_payload["rows"])
-        if not features.empty and "code" in features.columns:
-            metadata = features.rename(columns={"code": "entity_id"})
+        if isinstance(feature_payload.get("rows"), list):
+            features = pd.DataFrame(feature_payload["rows"])
+            if not features.empty:
+                features["entity_type"] = features.get("entity_type", "stock")
+        else:
+            stock_rows = feature_payload.get("stock_rows")
+            sector_rows = feature_payload.get("sector_rows")
+            if not isinstance(stock_rows, list) or not isinstance(sector_rows, list):
+                raise ArtifactMismatch("feature artifact rows are invalid")
+            stock_features = pd.DataFrame(stock_rows)
+            sector_features = pd.DataFrame(sector_rows)
+            if not stock_features.empty:
+                stock_features["entity_type"] = "stock"
+                stock_features["entity_id"] = stock_features["code"].astype(str)
+            if not sector_features.empty:
+                sector_features["entity_type"] = "sector"
+            features = pd.concat(
+                [stock_features, sector_features],
+                ignore_index=True,
+                sort=False,
+            )
+        if not features.empty:
+            metadata = features.copy()
+            if "entity_id" not in metadata.columns and "code" in metadata.columns:
+                metadata = metadata.rename(columns={"code": "entity_id"})
             overlap = [
                 column
                 for column in metadata.columns
-                if column in prediction_rows.columns and column != "entity_id"
+                if column in prediction_rows.columns
+                and column not in {"entity_type", "entity_id"}
             ]
-            metadata = metadata.drop(columns=overlap)
+            metadata = metadata.drop(columns=overlap).drop_duplicates(
+                ["entity_type", "entity_id"],
+                keep="last",
+            )
             prediction_rows = prediction_rows.merge(
                 metadata,
-                on="entity_id",
+                on=["entity_type", "entity_id"],
                 how="left",
                 validate="many_to_one",
             )
@@ -178,9 +200,25 @@ def _view_columns(frame: pd.DataFrame, preferred: tuple[str, ...]) -> pd.DataFra
 
 
 def _normalized_sector(frame: pd.DataFrame) -> pd.Series:
-    namespace = frame.get("namespace", pd.Series(index=frame.index, dtype=object)).fillna("UNASSIGNED")
+    namespace = frame.get(
+        "sector_namespace",
+        frame.get("namespace", pd.Series(index=frame.index, dtype=object)),
+    ).fillna("UNASSIGNED")
     sector = frame.get("sector_id", pd.Series(index=frame.index, dtype=object)).fillna("UNASSIGNED")
     return namespace.astype(str) + ":" + sector.astype(str)
+
+
+def split_entity_views(rows: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    frame = rows.copy()
+    if frame.empty:
+        return frame.copy(), frame.copy()
+    if "entity_type" not in frame.columns:
+        raise ArtifactMismatch("prediction rows are missing entity_type")
+    frame["sector_key"] = _normalized_sector(frame)
+    h5 = frame.loc[pd.to_numeric(frame["horizon"], errors="coerce").eq(5)].copy()
+    stocks = h5.loc[h5["entity_type"].astype(str).eq("stock")].reset_index(drop=True)
+    sectors = h5.loc[h5["entity_type"].astype(str).eq("sector")].reset_index(drop=True)
+    return stocks, sectors
 
 
 def render_technical_v2(
@@ -236,8 +274,12 @@ def render_technical_v2(
     routes = meta.get("routes") if isinstance(meta.get("routes"), dict) else {}
     formula_route = routes.get("formula") if isinstance(routes.get("formula"), dict) else {}
     jev_route = routes.get("jev") if isinstance(routes.get("jev"), dict) else {}
+    stock_h5, sector_h5 = split_entity_views(snapshot.rows)
+    stock_entities = snapshot.rows.loc[
+        snapshot.rows["entity_type"].astype(str).eq("stock"), "entity_id"
+    ].nunique()
     metrics = st.columns(5)
-    metrics[0].metric("名册股票", snapshot.rows["entity_id"].nunique())
+    metrics[0].metric("名册股票", stock_entities)
     metrics[1].metric("覆盖状态行", len(snapshot.rows))
     metrics[2].metric("有效预测", int(snapshot.rows["prediction_status"].astype(str).eq("OK").sum()))
     metrics[3].metric("公式路线", str(formula_route.get("status") or "UNKNOWN"))
@@ -245,27 +287,39 @@ def render_technical_v2(
 
     rows = snapshot.rows.copy()
     rows["sector_key"] = _normalized_sector(rows)
-    h5 = rows.loc[pd.to_numeric(rows["horizon"], errors="coerce").eq(5)].copy()
+    stock_rows = rows.loc[rows["entity_type"].astype(str).eq("stock")].copy()
     tabs = st.tabs(["行业概览", "行业个股", "A/B 对比", "操作与纸面账户", "评估与下载"])
 
     with tabs[0]:
-        sector_summary = (
-            h5.groupby("sector_key", dropna=False)
-            .agg(
-                股票数=("entity_id", "nunique"),
-                状态行=("entity_id", "size"),
-                有效预测=("prediction_status", lambda values: int(values.astype(str).eq("OK").sum())),
-            )
-            .reset_index()
-            .rename(columns={"sector_key": "行业"})
+        sector_summary = _view_columns(
+            sector_h5,
+            (
+                "sector_name",
+                "sector_namespace",
+                "sector_id",
+                "method",
+                "prediction_status",
+                "forecast_class",
+                "observed_trend",
+                "formula_score",
+                "p_cal_up",
+                "p_raw_up",
+                "research_intent",
+                "sector_history_mode",
+                "reason_codes",
+            ),
         )
         st.dataframe(sector_summary, hide_index=True, width="stretch")
 
     with tabs[1]:
-        sector_options = sorted(h5["sector_key"].astype(str).unique())
-        selected_sector = st.selectbox("行业", sector_options, index=0)
+        sector_options = sorted(stock_h5["sector_key"].astype(str).unique())
+        if sector_options:
+            selected_sector = st.selectbox("行业", sector_options, index=0)
+        else:
+            selected_sector = ""
+            st.info("暂无可用行业数据")
         query = st.text_input("股票代码或名称", value="").strip().lower()
-        sector_rows = h5.loc[h5["sector_key"].eq(selected_sector)].copy()
+        sector_rows = stock_h5.loc[stock_h5["sector_key"].eq(selected_sector)].copy()
         if query:
             names = sector_rows.get("name", pd.Series("", index=sector_rows.index)).fillna("").astype(str)
             mask = sector_rows["entity_id"].astype(str).str.lower().str.contains(query, regex=False)
@@ -296,9 +350,9 @@ def render_technical_v2(
         )
         st.dataframe(stock_view, hide_index=True, width="stretch")
         with st.expander("1/3 日诊断"):
-            diagnostics = rows.loc[
-                rows["sector_key"].eq(selected_sector)
-                & pd.to_numeric(rows["horizon"], errors="coerce").isin((1, 3))
+            diagnostics = stock_rows.loc[
+                stock_rows["sector_key"].eq(selected_sector)
+                & pd.to_numeric(stock_rows["horizon"], errors="coerce").isin((1, 3))
             ]
             st.dataframe(
                 _view_columns(
@@ -333,17 +387,17 @@ def render_technical_v2(
                 "p_cal_up",
                 "probability_validation_status",
             )
-            if column in h5.columns
+            if column in stock_h5.columns
         ]
         st.dataframe(
-            _view_columns(h5[compare_fields], tuple(compare_fields)),
+            _view_columns(stock_h5[compare_fields], tuple(compare_fields)),
             hide_index=True,
             width="stretch",
         )
 
     with tabs[3]:
         action_rows = _view_columns(
-            h5,
+            stock_h5,
             (
                 "entity_id",
                 "name",

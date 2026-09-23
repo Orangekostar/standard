@@ -195,6 +195,49 @@ class PipelinePublicationTest(unittest.TestCase):
 
         self.assertEqual(result.route_statuses["formula"], "PARTIAL")
 
+    def test_pipeline_publishes_independent_stock_and_sector_coverage(self) -> None:
+        sector_universe = pd.DataFrame(
+            [{"entity_id": "SW_L1:801010.SI", "sector_id": "801010.SI"}]
+        )
+        sector_formula = pd.DataFrame(
+            [
+                {
+                    "entity_type": "sector",
+                    "entity_id": "SW_L1:801010.SI",
+                    "as_of_trade_date": "20260922",
+                    "horizon": horizon,
+                    "method": "formula",
+                    "prediction_status": "OK",
+                    "forecast_class": "up",
+                    "formula_score": 60 + horizon,
+                }
+                for horizon in (1, 3, 5)
+            ]
+        )
+
+        result = self.pipeline.run(
+            run_id="run-stock-sector",
+            as_of_trade_date="20260922",
+            information_cutoff="2026-09-22T16:10:00+08:00",
+            mode="EOD_FINAL",
+            data_source_mode="test",
+            data_hash="data-hash-sector",
+            config_hash="config-hash-1",
+            code_hash="code-hash-1",
+            universe=self.universe,
+            sector_universe=sector_universe,
+            formula_predictions=pd.concat([self.formula, sector_formula], ignore_index=True),
+        )
+
+        self.assertEqual(result.coverage_rows, 12)
+        coverage_files = list((self.root / result.run_id / "coverage").glob("*.json"))
+        rows = json.loads(coverage_files[0].read_text(encoding="utf-8"))["rows"]
+        self.assertEqual({row["entity_type"] for row in rows}, {"stock", "sector"})
+        self.assertEqual(
+            len([row for row in rows if row["entity_type"] == "sector"]),
+            6,
+        )
+
     def test_run_id_cannot_escape_artifact_root(self) -> None:
         with self.assertRaises(ContractError):
             self.pipeline.run(

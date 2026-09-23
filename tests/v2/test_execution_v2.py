@@ -293,6 +293,39 @@ class ExecutionTest(unittest.TestCase):
         self.assertEqual(blocked.orders, ())
         self.assertIn("MARKET_EXPOSURE_CAP_ZERO", blocked.status_rows[0]["reason_codes"])
 
+    def test_momentum_benchmark_can_use_same_allocator_without_return_estimate(self) -> None:
+        candidate = {
+            "code": "600000.SH",
+            "horizon": 5,
+            "account_action": "BUY",
+            "prediction_status": "OK",
+            "trade_eligible": True,
+            "expected_net_edge": None,
+            "allow_without_return_estimate": True,
+            "formula_score": 100.0,
+            "reference_price": 10.0,
+            "atr_pct14": 0.02,
+            "adv20_cny": 50_000_000,
+            "sector_id": "S1",
+            "planned_exit_date": "20261009",
+        }
+
+        result = allocate_orders(
+            [candidate],
+            run_id="run-m0",
+            account_id="formula-paper",
+            as_of_trade_date="20260923",
+            earliest_trade_date="20260924",
+            nav_cents=100_000_000,
+            cash_cents=100_000_000,
+            market_breadth20=0.5,
+            holdings=[],
+            security_rules={"600000.SH": self.rule},
+        )
+
+        self.assertEqual(len(result.orders), 1)
+        self.assertNotIn("NET_EDGE_BELOW_MINIMUM", result.status_rows[0]["reason_codes"])
+
     def test_invalid_candidate_numeric_value_is_blocked_not_raised(self) -> None:
         invalid = {
             "code": "600000.SH",

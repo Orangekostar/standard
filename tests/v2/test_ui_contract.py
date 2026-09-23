@@ -9,12 +9,14 @@ from unittest.mock import patch
 
 import pandas as pd
 
+from core.background.snapshot_store import write_immutable_json
 from core.pipeline.technical_v2 import TechnicalV2Pipeline
 from ui.technical_v2 import (
     build_display_row,
     build_snapshot_export,
     format_ratio,
     load_technical_v2_snapshot,
+    split_entity_views,
 )
 
 
@@ -83,6 +85,74 @@ class TechnicalV2UiContractTest(unittest.TestCase):
 
         self.assertEqual(snapshot.status, "NO_PUBLICATION")
         self.assertTrue(snapshot.rows.empty)
+
+    def test_loader_and_views_keep_sector_predictions_as_real_entities(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            pipeline = TechnicalV2Pipeline(root)
+            universe = pd.DataFrame([{"code": "600000.SH", "name": "A"}])
+            sectors = pd.DataFrame(
+                [
+                    {
+                        "entity_id": "SW2021:银行",
+                        "namespace": "SW2021",
+                        "sector_id": "银行",
+                        "sector_name": "银行",
+                    }
+                ]
+            )
+            rows = []
+            for entity_type, entity_id in (("stock", "600000.SH"), ("sector", "SW2021:银行")):
+                for horizon in (1, 3, 5):
+                    rows.append(
+                        {
+                            "entity_type": entity_type,
+                            "entity_id": entity_id,
+                            "as_of_trade_date": "20260922",
+                            "horizon": horizon,
+                            "method": "formula",
+                            "prediction_status": "OK",
+                            "formula_score": 70.0,
+                            "sector_namespace": "SW2021",
+                            "sector_id": "银行",
+                        }
+                    )
+            predictions = pd.DataFrame(rows)
+            pipeline.run(
+                run_id="ui-sector-fixture",
+                as_of_trade_date="20260922",
+                information_cutoff="2026-09-22T20:10:00+08:00",
+                mode="EOD_FINAL",
+                data_source_mode="test",
+                data_hash="data",
+                config_hash="config",
+                code_hash="code",
+                universe=universe,
+                sector_universe=sectors,
+                formula_predictions=predictions,
+            )
+            write_immutable_json(
+                root / "ui-sector-fixture" / "features" / "latest.json",
+                {
+                    "schema_version": "technical-v2-features.v1",
+                    "run_id": "ui-sector-fixture",
+                    "as_of_trade_date": "20260922",
+                    "stock_rows": [{"code": "600000.SH", "name": "A"}],
+                    "sector_rows": sectors.to_dict(orient="records"),
+                },
+            )
+
+            snapshot = load_technical_v2_snapshot(root)
+            stocks, sector_predictions = split_entity_views(snapshot.rows)
+
+        self.assertEqual(set(stocks["entity_id"]), {"600000.SH"})
+        self.assertEqual(set(sector_predictions["entity_id"]), {"SW2021:银行"})
+        self.assertEqual(set(sector_predictions["method"]), {"formula", "jev"})
+        self.assertEqual(
+            set(sector_predictions.loc[sector_predictions["method"].eq("jev"), "prediction_status"]),
+            {"PENDING"},
+        )
+        self.assertIn("sector_name", snapshot.features.columns)
 
 
 if __name__ == "__main__":
