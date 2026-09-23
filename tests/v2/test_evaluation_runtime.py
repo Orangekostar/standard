@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from core.data.v2_store import V2Store
 from core.pipeline.evaluation_v2 import run_fixed_evaluation
+from scripts.audit_v2_prompt import audit
 from tests.v2.test_cli_v2 import run_cli
 
 
@@ -52,6 +53,13 @@ class EvaluationRuntimeTest(unittest.TestCase):
             run_dir = root / "artifacts" / payload["run_id"]
             selection = json.loads((run_dir / "selection.json").read_text(encoding="utf-8"))
             manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
+            audit_payload = audit(
+                project_root=Path(__file__).resolve().parents[2],
+                db_path=root / "demo.db",
+                artifact_root=root / "artifacts",
+                mode="demo",
+                evaluation_run_id=payload["run_id"],
+            )
 
             self.assertEqual({path.name for path in run_dir.iterdir()}, required)
             with patch(
@@ -70,6 +78,11 @@ class EvaluationRuntimeTest(unittest.TestCase):
         self.assertFalse(payload["final_test_opened"])
         self.assertEqual(selection["formula"]["status"], "INSUFFICIENT_HISTORY")
         self.assertFalse(manifest["final_test_opened"])
+        self.assertEqual(audit_payload["checks"]["evaluation_package"]["status"], "PASS")
+        self.assertEqual(
+            audit_payload["checks"]["evaluation_package"]["evaluation_status"],
+            "INSUFFICIENT_HISTORY",
+        )
         self.assertGreater(payload["label_rows"], 0)
         self.assertEqual(replay.run_id, payload["run_id"])
         self.assertEqual(replay.artifact_hashes, payload["artifact_hashes"])

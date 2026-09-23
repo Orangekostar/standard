@@ -195,7 +195,7 @@ def audit(
             )
             evaluation_details.update(
                 {
-                    "status": manifest.get("status"),
+                    "evaluation_status": manifest.get("status"),
                     "split_status": manifest.get("split_status"),
                     "selection_status": manifest.get("selection_status"),
                     "final_test_opened": manifest.get("final_test_opened"),
