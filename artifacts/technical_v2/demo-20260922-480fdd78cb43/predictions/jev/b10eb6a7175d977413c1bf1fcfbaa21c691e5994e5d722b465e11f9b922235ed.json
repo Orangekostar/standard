@@ -1,0 +1,15 @@
+{
+  "as_of_trade_date": "20260922",
+  "data_source_mode": "demo",
+  "entity_id": "000001.SZ",
+  "entity_type": "stock",
+  "forecast_class": "down",
+  "horizon": 5,
+  "method": "jev",
+  "p_raw_down": 0.4517133119263954,
+  "p_raw_flat": 0.2086507060094638,
+  "p_raw_up": 0.33963598206414086,
+  "prediction_status": "OK",
+  "probability_validation_status": "SYNTHETIC_DEMO_ONLY",
+  "response_source": "SYNTHETIC_DEMO_RESPONSE"
+}

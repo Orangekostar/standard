@@ -1,0 +1,12 @@
+{
+  "as_of_trade_date": "20260922",
+  "data_source_mode": "demo",
+  "entity_id": "600000.SH",
+  "entity_type": "stock",
+  "forecast_class": "flat",
+  "formula_score": 55.381146453019234,
+  "horizon": 1,
+  "method": "formula",
+  "prediction_status": "OK",
+  "probability_validation_status": null
+}

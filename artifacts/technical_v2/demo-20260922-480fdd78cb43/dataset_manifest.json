@@ -1,0 +1,12 @@
+{
+  "schema_version": "technical-v2-dataset-manifest.v1",
+  "status": "DATA_UNAVAILABLE",
+  "code_commit": "e800038e05b2dab1059c062cc28e9f1c3bf1a518",
+  "config_hash": "7835afd12b6a553d415208bb97f803e248d81576d3906eb26e5327de8611bc1",
+  "real_partitions": [],
+  "last_complete_real_trade_date": null,
+  "mature_signal_dates": 0,
+  "required_mature_signal_dates": 504,
+  "final_test_opened": false,
+  "reason_codes": ["MIGRATED_V2_DATABASE_MISSING"]
+}

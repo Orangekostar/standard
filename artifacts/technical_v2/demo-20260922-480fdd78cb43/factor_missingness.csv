@@ -1,0 +1,2 @@
+mode,entity_type,factor_id,records,missing_records,missing_ratio,status,reason_code
+real,stock,,0,0,,NOT_RUN_WITH_REASON,REAL_FEATURE_ROWS_UNAVAILABLE

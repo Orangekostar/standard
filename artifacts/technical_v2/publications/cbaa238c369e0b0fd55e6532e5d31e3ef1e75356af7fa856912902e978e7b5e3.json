@@ -1,0 +1,29 @@
+{
+  "as_of_trade_date": "20260922",
+  "code_hash": "9736d78a9ae171afe4ebee99dbddc97ee727a0702eecba57e7d2af9cabfac7ae",
+  "config_hash": "7835afd12b6a5533d415208bb97f803e248d81576d3906eb26e5327de8611bc1",
+  "coverage_hash": "5ea0ea39da4f56c26ba861e6e113de730daab42a1e8c59c3e2a300ddffd25613",
+  "coverage_rows": 24,
+  "data_hash": "90fb61888194cf5c642fcf0021f4a1bbb3f7dfab8595b015ae1bbc83eca877bf",
+  "data_source_mode": "demo",
+  "information_cutoff": "2026-09-22T16:10:00+08:00",
+  "manifest_hash": "fc72c3ab08e7e456bb30b6cc61b5cb2e7ea945c1995269fe0a9077b4d373433f",
+  "mode": "EOD_FINAL",
+  "publication_id": "cbaa238c369e0b0fd55e6532e5d31e3ef1e75356af7fa856912902e978e7b5e3",
+  "routes": {
+    "formula": {
+      "artifact_hash": "3a43b679283faee234e594e3ec6b2a9086abafdf9c9165ad000122f9f84f6045",
+      "recorded_rows": 12,
+      "status": "OK"
+    },
+    "jev": {
+      "artifact_hash": "b7f34410fea2983d7fccccf3eb99f00b52406cae7e936c15d976d7f59ee7e108",
+      "recorded_rows": 12,
+      "status": "OK"
+    }
+  },
+  "run_id": "demo-20260922-480fdd78cb43",
+  "run_manifest_hash": "58d650d533bbda9687c2f8ff26e8568e5ab7fa3b1114445e9fdfabb1901d1e40",
+  "schema_version": "technical-v2-publication.v1",
+  "valid_prediction_rows": 24
+}

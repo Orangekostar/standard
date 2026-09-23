@@ -1,0 +1,3 @@
+mode,as_of_trade_date,entity_type,universe_entities,expected_prediction_rows,recorded_prediction_rows,valid_prediction_rows,status,evidence_class
+demo,20260922,stock,4,24,24,24,DEMO_ONLY,SYNTHETIC_FLOW_CHECK
+real,,stock,0,0,0,0,NOT_RUN_WITH_REASON,MARKET_V2_DB_MISSING

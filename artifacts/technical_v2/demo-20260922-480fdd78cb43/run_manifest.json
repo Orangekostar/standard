@@ -1,0 +1,12 @@
+{
+  "as_of_trade_date": "20260922",
+  "code_hash": "9736d78a9ae171afe4ebee99dbddc97ee727a0702eecba57e7d2af9cabfac7ae",
+  "config_hash": "7835afd12b6a5533d415208bb97f803e248d81576d3906eb26e5327de8611bc1",
+  "data_hash": "90fb61888194cf5c642fcf0021f4a1bbb3f7dfab8595b015ae1bbc83eca877bf",
+  "data_source_mode": "demo",
+  "generated_at": "2026-09-23T06:05:34.382125+00:00",
+  "information_cutoff": "2026-09-22T16:10:00+08:00",
+  "mode": "EOD_FINAL",
+  "run_id": "demo-20260922-480fdd78cb43",
+  "schema_version": "technical-v2-run.v1"
+}

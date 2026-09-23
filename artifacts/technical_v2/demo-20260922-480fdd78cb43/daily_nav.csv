@@ -1,0 +1,2 @@
+mode,method,trade_date,nav_cny,cash_cny,position_value_cny,status,reason_code
+real,,,,,,NOT_RUN_WITH_REASON,PAPER_EXECUTION_DATA_UNAVAILABLE

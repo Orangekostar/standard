@@ -1,0 +1,2 @@
+mode,entity_type,factor_id,horizon,records,dates,rank_ic,status,reason_code
+real,stock,,5,0,0,,NOT_RUN_WITH_REASON,MATURE_REAL_LABELS_UNAVAILABLE

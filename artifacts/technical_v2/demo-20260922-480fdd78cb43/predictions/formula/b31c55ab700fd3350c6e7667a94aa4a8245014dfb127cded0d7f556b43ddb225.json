@@ -1,0 +1,12 @@
+{
+  "as_of_trade_date": "20260922",
+  "data_source_mode": "demo",
+  "entity_id": "300001.SZ",
+  "entity_type": "stock",
+  "forecast_class": "flat",
+  "formula_score": 44.4455964764899,
+  "horizon": 3,
+  "method": "formula",
+  "prediction_status": "OK",
+  "probability_validation_status": null
+}

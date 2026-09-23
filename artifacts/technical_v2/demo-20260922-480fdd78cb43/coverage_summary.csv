@@ -1,0 +1,3 @@
+mode,as_of_trade_date,universe_stock_count,coverage_rows,valid_formula_rows,valid_jev_rows,jev_response_source,status
+demo,20260922,4,24,12,12,SYNTHETIC_DEMO_RESPONSE,DEMO_ONLY
+real,,0,0,0,0,,NOT_RUN_WITH_REASON

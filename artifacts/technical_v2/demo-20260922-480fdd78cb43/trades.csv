@@ -1,0 +1,2 @@
+mode,method,lot_id,code,entry_date,exit_date,quantity,net_pnl_cny,status,reason_code
+real,,,,,,,0,NOT_RUN_WITH_REASON,PAPER_EXECUTION_DATA_UNAVAILABLE

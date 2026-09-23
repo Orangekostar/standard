@@ -1,0 +1,3 @@
+mode,entity_type,pool_id,variant,horizon,records,dates,coverage,log_loss,brier_score,status,reason_code
+real,stock,J0_EQUAL_POOL,identity,5,0,0,,,,NOT_RUN_WITH_REASON,TYPESAFE_API_KEY_MISSING
+real,stock,J1_WEIGHTED_POOL,identity,5,0,0,,,,NOT_RUN_WITH_REASON,TYPESAFE_API_KEY_MISSING

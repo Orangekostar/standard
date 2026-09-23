@@ -1,0 +1,37 @@
+{
+  "schema_version": "technical-v2-data-audit.v1",
+  "generated_at_utc": "2026-09-23T06:02:21Z",
+  "code_commit": "e800038e05b2dab1059c062cc28e9f1c3bf1a518",
+  "real_v2": {
+    "status": "UNAVAILABLE",
+    "database_exists": false,
+    "tushare_credential_configured": false,
+    "typesafe_credential_configured": false,
+    "formula_analysis_run": false,
+    "jev_online_smoke_run": false,
+    "reason_codes": [
+      "MARKET_V2_DB_MISSING",
+      "TUSHARE_TOKEN_MISSING",
+      "TYPESAFE_API_KEY_MISSING"
+    ]
+  },
+  "legacy_database": {
+    "status": "LEGACY_UNVERIFIED",
+    "daily_rows": 601874,
+    "distinct_daily_codes": 5581,
+    "date_min": "20260414",
+    "date_max": "20260922",
+    "source_and_unit_provenance_verified": false,
+    "used_for_v2_selection": false
+  },
+  "demo": {
+    "status": "DEMO_ONLY",
+    "seed": 20260923,
+    "as_of_trade_date": "20260922",
+    "stock_count": 4,
+    "prediction_rows": 24,
+    "network_calls": 0,
+    "paid_calls": 0,
+    "research_evidence": false
+  }
+}

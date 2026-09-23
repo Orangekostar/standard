@@ -1,0 +1,5 @@
+evidence_mode,route,selection_status,net_return,annualized_return,annualized_volatility,sharpe,max_drawdown,closed_trades,win_rate,log_loss,brier_score,status,reason_code
+real,formula,INSUFFICIENT_HISTORY,,,,,,0,,,NOT_RUN_WITH_REASON,MIGRATED_V2_DATABASE_MISSING
+real,jev,UNAVAILABLE_CREDENTIALS,,,,,,0,,,NOT_RUN_WITH_REASON,TYPESAFE_API_KEY_MISSING
+demo,formula,DEMO_ONLY,,,,,,0,,,FLOW_ONLY,SYNTHETIC_INPUT_HAS_NO_RETURN_LABELS
+demo,jev,DEMO_ONLY,,,,,,0,,,FLOW_ONLY,SYNTHETIC_JEV_RESPONSE_NOT_API_EVIDENCE

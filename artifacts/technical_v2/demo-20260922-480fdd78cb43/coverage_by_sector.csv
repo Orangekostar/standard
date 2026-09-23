@@ -1,0 +1,2 @@
+mode,as_of_trade_date,namespace,sector_id,member_count,covered_count,coverage,status,reason_code
+real,,,,0,0,,NOT_RUN_WITH_REASON,SECTOR_MEMBERSHIP_DATA_UNAVAILABLE

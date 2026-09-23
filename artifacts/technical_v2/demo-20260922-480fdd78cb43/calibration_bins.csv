@@ -1,0 +1,2 @@
+mode,entity_type,pool_id,horizon,bin_lower,bin_upper,records,mean_confidence,observed_frequency,status,reason_code
+real,stock,,5,,,0,,,NOT_RUN_WITH_REASON,CALIBRATION_DATA_UNAVAILABLE

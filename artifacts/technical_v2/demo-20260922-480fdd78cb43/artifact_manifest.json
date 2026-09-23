@@ -1,0 +1,25 @@
+{
+  "schema_version": "technical-v2-artifact-manifest.v1",
+  "run_id": "demo-20260922-480fdd78cb43",
+  "code_commit": "e800038e05b2dab1059c062cc28e9f1c3bf1a518",
+  "generated_at_utc": "2026-09-23T06:02:21Z",
+  "files": [
+    {"path": "run_manifest.json", "size_bytes": 533, "sha256": "20c9298cb25f5c9663a62f151554117c0c08849451509f7f5b42b50738fa078f"},
+    {"path": "selection.json", "size_bytes": 1510, "sha256": "a5c5f963318e7c5e26562236b6400b0f48b75e31849c33bcb80c46f7760f99ca"},
+    {"path": "summary_metrics.csv", "size_bytes": 507, "sha256": "01747bf33121cb1c6d6f04dfc1eefa00a8ae4d72177ab222bcf1d348bd68a749"},
+    {"path": "coverage_summary.csv", "size_bytes": 212, "sha256": "f8ad41a5dc81cd4a52f86f343d9727d5ed57e27fa72a7a32d4eb776bd5aec663"},
+    {"path": "TEST_REPORT.md", "size_bytes": 1826, "sha256": "32cdf555666b52328db768a504e0e6027697ab5a7c4e5184d119fc4d67a32a9c"},
+    {"path": "data_audit.json", "size_bytes": 1011, "sha256": "1284c602980bc10dc067f5b8546eb24f56f4ea76ae3f662cf850adcbec6fee95"},
+    {"path": "dataset_manifest.json", "size_bytes": 451, "sha256": "1bb1e8c848298e5dc44396f8582d611695c57a43550aad256d680c0e294d81fc"},
+    {"path": "coverage_by_date.csv", "size_bytes": 269, "sha256": "43a280ee91859a6b9a684db4e025c1fe48631be5de634f40c2895aa26e84a00a"},
+    {"path": "coverage_by_sector.csv", "size_bytes": 165, "sha256": "c01951ecb7d93af0084536f75155b7aa86a9fe74c1d86d863fcabe04ca7feb4b"},
+    {"path": "factor_ic.csv", "size_bytes": 146, "sha256": "cf929b388593aed2cc301aced7ca9a7824a5b0a55077e21c42b6044a0f966181"},
+    {"path": "factor_missingness.csv", "size_bytes": 151, "sha256": "5b18cd4df7f46aabe52ae11bf3d17d33f192fc88fee663f4af4a75733a48334a"},
+    {"path": "candidate_comparison.csv", "size_bytes": 621, "sha256": "4c6a041807d2c5b2f8434aa86fcf1e4a262b5252e601b7e7841a986064cf02b2"},
+    {"path": "probability_metrics.csv", "size_bytes": 283, "sha256": "b184a994c92b247bf0e3f9276a1945d20f9a41537d0dc294cad0be5e9257f4bc"},
+    {"path": "calibration_bins.csv", "size_bytes": 184, "sha256": "6a55253efb483d1c86ce648838fae43cd9d8918be312c15c467b9e4078f56c9f"},
+    {"path": "daily_nav.csv", "size_bytes": 141, "sha256": "a61634cb5a779809b259b891945d7302d08972afc013e3aa3a4f70947241181c"},
+    {"path": "trades.csv", "size_bytes": 151, "sha256": "43a873c3733f555b0b329c6891ad3bc14461d54c8a00eb9ca61276e1b70116e4"},
+    {"path": "orders.csv", "size_bytes": 148, "sha256": "f3811a094a7af763a59f683352309ade229926c12c9e4441b824f1c908a253b0"}
+  ]
+}

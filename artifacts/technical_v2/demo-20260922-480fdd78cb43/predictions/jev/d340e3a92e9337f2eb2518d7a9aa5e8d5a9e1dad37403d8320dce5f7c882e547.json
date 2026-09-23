@@ -1,0 +1,15 @@
+{
+  "as_of_trade_date": "20260922",
+  "data_source_mode": "demo",
+  "entity_id": "600000.SH",
+  "entity_type": "stock",
+  "forecast_class": "up",
+  "horizon": 5,
+  "method": "jev",
+  "p_raw_down": 0.2712553206333037,
+  "p_raw_flat": 0.14349534662316543,
+  "p_raw_up": 0.5852493327435309,
+  "prediction_status": "OK",
+  "probability_validation_status": "SYNTHETIC_DEMO_ONLY",
+  "response_source": "SYNTHETIC_DEMO_RESPONSE"
+}
