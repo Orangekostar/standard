@@ -1,0 +1,86 @@
+{
+  "schema_version": "standard.technical-v2.baseline.v1",
+  "generated_at_utc": "2026-09-23T02:40:23Z",
+  "repository": "git@github.com:Orangekostar/standard.git",
+  "source_commit": "32279ec22d447675cbfcc6bdbf9b68f10e37bbf4",
+  "audit_head": "b0163d462151164413a869b135b5f768a103c61d",
+  "branch": "codex/technical-v2",
+  "execution_prompt_sha256": "29966634d56d2a2f7dbb0337121700631729d414988804a3fa6a35cccdb8a2ce",
+  "plan_config_sha256": "7835afd12b6a5533d415208bb97f803e248d81576d3906eb26e5327de8611bc1",
+  "environment": {
+    "python": "3.13.13",
+    "pandas": "3.0.3",
+    "numpy": "2.5.1",
+    "streamlit": "1.58.0",
+    "tushare": "1.4.29",
+    "akshare": "1.18.64",
+    "github_cli_available": false,
+    "isolated_worktree_tushare_configured": false,
+    "isolated_worktree_typesafe_configured": false
+  },
+  "legacy_database": {
+    "path_observed": "/home/ww/vv/quant/cache/a_share_market.db",
+    "opened_read_only": true,
+    "classification": "LEGACY_UNVERIFIED",
+    "reason": "daily rows lack immutable source version, retrieval timestamp, completeness, and unit metadata",
+    "tables": [
+      "daily_bars",
+      "stock_basic"
+    ],
+    "daily_bars": {
+      "rows": 601874,
+      "distinct_codes": 5581,
+      "min_trade_date": "20260414",
+      "max_trade_date": "20260922",
+      "max_date_distinct_codes": 5554
+    },
+    "stock_basic": {
+      "rows": 4122,
+      "distinct_codes": 4122,
+      "missing_industry_rows": 0,
+      "distinct_industries": 110
+    },
+    "unit_status": "UNVERIFIED",
+    "source_status": "UNVERIFIED"
+  },
+  "baseline_tests": {
+    "command": "/home/ww/vv/quant/.venv/bin/python -m unittest discover -s tests -v",
+    "tests_run": 33,
+    "failures": 0,
+    "errors": 0,
+    "warnings": "existing unclosed sqlite3 connection ResourceWarnings"
+  },
+  "files_read": [
+    "README.md",
+    "prompt.md",
+    "report.md",
+    "config.py",
+    "requirements.txt",
+    "app.py entry points",
+    "core/data/data_manager.py",
+    "core/data/tushare_client.py",
+    "core/data/symbols.py",
+    "core/factors/base.py",
+    "core/factors/registry.py",
+    "core/factors/technical.py",
+    "core/factors/volume_price.py",
+    "core/strategies/factor_selection.py",
+    "core/strategies/three_bull_pullback.py relevant aggregation paths",
+    "core/backtest/engine.py",
+    "core/backtest/metrics.py",
+    "core/background/precompute_worker.py entry points and task writes",
+    "core/background/snapshot_store.py",
+    "core/background/task_rules.py",
+    "core/pipeline/runner.py",
+    "deploy/systemd service and installer",
+    "tests existing suite"
+  ],
+  "runtime_evidence": {
+    "source_code": true,
+    "legacy_database_aggregate_only": true,
+    "verified_v2_real_data": false,
+    "verified_jev_call": false,
+    "verified_remote_publish": false
+  }
+}
+

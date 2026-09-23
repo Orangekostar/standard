@@ -67,11 +67,26 @@ def _resolve_market_db_path() -> Path:
     return _resolve_cache_dir() / "a_share_market.db"
 
 
+def _resolve_path_env(name: str, default: str) -> Path:
+    raw = str(os.getenv(name, default) or default)
+    path = Path(raw)
+    if not path.is_absolute():
+        path = BASE_DIR / path
+    return path
+
+
 @dataclass(frozen=True)
 class Settings:
     tushare_token: str = os.getenv("TUSHARE_TOKEN", "")
+    typesafe_api_key: str = os.getenv("TYPESAFE_API_KEY", "")
     cache_dir: Path = _resolve_cache_dir()
     market_db_path: Path = _resolve_market_db_path()
+    data_mode: str = str(os.getenv("DATA_MODE", "real") or "real").strip().lower()
+    market_v2_db_path: Path = _resolve_path_env("MARKET_V2_DB_PATH", "cache/v2/market.db")
+    demo_v2_root: Path = _resolve_path_env("DEMO_V2_ROOT", "cache/demo_v2")
+    technical_v2_artifact_root: Path = _resolve_path_env(
+        "TECHNICAL_V2_ARTIFACT_ROOT", "artifacts/technical_v2"
+    )
 
 
 settings = Settings()

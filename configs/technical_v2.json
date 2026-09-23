@@ -1,0 +1,295 @@
+{
+  "schema_version": "standard.technical-v2.plan.v1",
+  "config_id": "technical-v2-fixed-v1",
+  "purpose": "Research defaults; not validated trading parameters or broker fee advice.",
+  "repository": "https://github.com/Orangekostar/standard",
+  "source_commit": "32279ec22d447675cbfcc6bdbf9b68f10e37bbf4",
+  "sources_verified_on": "2026-09-23",
+  "timezone": "Asia/Shanghai",
+  "data": {
+    "default_mode": "real",
+    "real_database": "cache/v2/market.db",
+    "demo_root": "cache/demo_v2",
+    "history_sessions": 800,
+    "feature_warmup_sessions": 120,
+    "sector_preference": "SW_L1",
+    "sector_fallback": "CURRENT_SNAPSHOT_ONLY",
+    "min_context_member_coverage": 0.9,
+    "min_sector_members": 5,
+    "min_observed_bars_in_60": 50,
+    "min_price_points": 61,
+    "min_factor_count": 12,
+    "factor_count": 15,
+    "risk_count": 6,
+    "allow_silent_mock": false
+  },
+  "schedule": {
+    "preopen": "09:00",
+    "eod": "16:10",
+    "repair": "20:10",
+    "profile": "technical_v2"
+  },
+  "targets": {
+    "horizons": [
+      1,
+      3,
+      5
+    ],
+    "primary_horizon": 5,
+    "entry_offset_sessions": 1,
+    "exit_offset_formula": "1+h",
+    "stock_delta_floor": 0.005,
+    "sector_delta_floor": 0.002,
+    "volatility_multiplier": 0.25,
+    "classes": [
+      "up",
+      "flat",
+      "down"
+    ],
+    "boundaries": {
+      "up": "R > delta",
+      "flat": "-delta <= R <= delta",
+      "down": "R < -delta"
+    },
+    "label_basis": "ADJUSTED_OPEN_PRICE_RETURN",
+    "unknown_class": "unknown"
+  },
+  "factors": {
+    "groups": {
+      "T": [
+        "F01",
+        "F02",
+        "F03"
+      ],
+      "R": [
+        "F04",
+        "F05"
+      ],
+      "S": [
+        "F06",
+        "F07",
+        "F08"
+      ],
+      "V": [
+        "F09",
+        "F10",
+        "F11"
+      ],
+      "C": [
+        "F12",
+        "F13",
+        "F14",
+        "F15"
+      ]
+    },
+    "std_ddof": 0,
+    "sigma_denominator_floor": 0.005,
+    "atr_pct_denominator_floor": 0.001,
+    "rsi_in_production": false,
+    "base_weights": {
+      "1": {
+        "T": 0.2,
+        "R": 0.15,
+        "S": 0.25,
+        "V": 0.25,
+        "C": 0.15
+      },
+      "3": {
+        "T": 0.25,
+        "R": 0.2,
+        "S": 0.2,
+        "V": 0.2,
+        "C": 0.15
+      },
+      "5": {
+        "T": 0.3,
+        "R": 0.2,
+        "S": 0.2,
+        "V": 0.15,
+        "C": 0.15
+      }
+    },
+    "formula_variants": {
+      "F0_BALANCED": {},
+      "F1_TREND": {
+        "T": 0.05,
+        "V": -0.05
+      },
+      "F2_STRUCTURE": {
+        "S": 0.05,
+        "T": -0.05
+      }
+    },
+    "sector_weights": {
+      "1": [
+        0.2,
+        0.1,
+        0.2,
+        0.3,
+        0.2
+      ],
+      "3": [
+        0.25,
+        0.15,
+        0.2,
+        0.25,
+        0.15
+      ],
+      "5": [
+        0.3,
+        0.2,
+        0.2,
+        0.2,
+        0.1
+      ]
+    },
+    "formula_up_threshold": 60,
+    "formula_down_threshold": 40,
+    "score_bins": [
+      0,
+      20,
+      35,
+      50,
+      65,
+      80,
+      100
+    ]
+  },
+  "statistics": {
+    "bin_shrink_strength": 100,
+    "min_bin_records": 100,
+    "min_bin_dates": 20,
+    "min_global_records": 1000,
+    "min_global_dates": 30,
+    "return_estimate_basis": "ADJUSTED_PRICE_PROXY"
+  },
+  "jev": {
+    "api_base": "https://api.typesafe.ai",
+    "endpoint": "/v1/systemone",
+    "model": "jev-1.13.0",
+    "api_key_env": "TYPESAFE_API_KEY",
+    "questions_per_entity": 15,
+    "pools": [
+      "J0_EQUAL_POOL",
+      "J1_WEIGHTED_POOL"
+    ],
+    "temperature_grid": [
+      0.5,
+      0.75,
+      1,
+      1.5,
+      2,
+      3,
+      4,
+      5
+    ],
+    "probability_sum_tolerance": 0.001,
+    "probability_log_clip": 1e-08,
+    "min_calibration_records": 1000,
+    "min_calibration_dates": 30,
+    "min_records_per_class": 30,
+    "timeout_seconds": 30,
+    "extra_retries": 2,
+    "concurrency": 8,
+    "requests_per_minute": 240,
+    "development_budget_usd": 15,
+    "daily_budget_usd": 5,
+    "credentials_embedded": false,
+    "pretraining_contamination_status": "UNRESOLVED_FOR_RETROSPECTIVE_REPLAY"
+  },
+  "portfolio": {
+    "mode": "paper",
+    "separate_accounts_by_method": true,
+    "initial_capital_cny": 1000000,
+    "max_names": 10,
+    "max_stock_weight": 0.1,
+    "max_sector_weight": 0.25,
+    "max_gross_weight": 0.6,
+    "per_stock_risk_budget": 0.005,
+    "max_adv_participation": 0.01,
+    "min_listing_sessions": 120,
+    "min_adv20_cny": 20000000,
+    "buy_score5": 65,
+    "buy_score3": 55,
+    "buy_probability_up": 0.55,
+    "buy_probability_down_ceiling": 0.25,
+    "sell_probability_down": 0.55,
+    "reduce_probability_down": 0.35,
+    "minimum_net_edge": 0.001,
+    "stop_atr_multiple": 2.5,
+    "stop_price_floor_fraction": 0.03,
+    "market_breadth_bands": [
+      0.35,
+      0.55
+    ],
+    "market_exposure_caps": [
+      0,
+      0.3,
+      0.6
+    ],
+    "entry_price_ceiling_max_fraction": 0.02,
+    "entry_price_ceiling_atr_multiplier": 0.5,
+    "connect_real_broker": false,
+    "paper_board_permissions": [
+      "MAIN_SH",
+      "MAIN_SZ",
+      "CHINEXT",
+      "STAR"
+    ],
+    "paper_permission_provenance": "RESEARCH_PERMISSION_ASSUMPTION",
+    "real_account_permissions_default": "UNCONFIGURED"
+  },
+  "costs": {
+    "mode": "RESEARCH_ASSUMPTION_NOT_BROKER_TARIFF",
+    "commission_each_side": 0.0003,
+    "minimum_commission_cny": 5,
+    "sell_addon_rate": 0.0005,
+    "other_rate_each_side": 1e-05,
+    "slippage_each_side": 0.001,
+    "slippage_accounting": "IN_FILL_PRICE_ONLY"
+  },
+  "evaluation": {
+    "seed": 20260923,
+    "protocol": "fixed-v1",
+    "matured_signal_dates": 504,
+    "train_dates": 252,
+    "calibration_dates": 63,
+    "validation_dates": 63,
+    "test_dates": 126,
+    "test_reporting_blocks": [
+      63,
+      63
+    ],
+    "purge_rule": "label_end_date < next_block_first_signal_date",
+    "jevreplay_stock_cohort_max": 32,
+    "jevreplay_sector_cohort_max": 32,
+    "max_formula_candidates": 3,
+    "max_jev_pool_candidates": 2,
+    "min_selection_closed_trades": 30,
+    "min_selection_trade_dates": 20,
+    "validation_max_drawdown_cap": 0.2,
+    "sharpe_tie_tolerance": 0.05,
+    "logloss_tie_tolerance": 0.001,
+    "probability_reliability_bins": 10,
+    "forward_min_signal_dates": 60,
+    "forward_min_records_per_entity_type": 1000,
+    "forward_max_dd_extra_vs_formula": 0.02
+  },
+  "checks": {
+    "business_test_families": 12,
+    "perf_fixture_stocks": 200,
+    "perf_fixture_sessions": 300,
+    "max_full_baseline_runs": 1,
+    "max_full_final_runs_before_targeted_fixes": 1
+  },
+  "release": {
+    "branch": "codex/technical-v2",
+    "allow_force_push": false,
+    "allow_auto_merge_main": false,
+    "pre_release": true,
+    "tag_pattern": "technical-v2-YYYYMMDD-<release_commit_7>",
+    "handoff": "docs/v2/HANDOFF.md",
+    "artifact_root": "artifacts/technical_v2",
+    "live_trading": "NOT_CONNECTED"
+  }
+}
