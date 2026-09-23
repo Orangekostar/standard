@@ -1,4 +1,4 @@
-# A股分析框架（MVP）
+# Technical V2 A股研究系统
 
 该项目按以下分层设计：
 
@@ -52,32 +52,42 @@ cp .env.example .env
 # 编辑 .env，填入 TUSHARE_TOKEN
 ```
 
-3. 运行 UI
+3. 运行 Technical V2 UI
 
 ```bash
-streamlit run app.py
+streamlit run app_v2.py
 ```
 
-4. 启动后台预计算 Worker（推荐使用 systemd）
+原型入口仍保留为 `streamlit run app.py`，其结果标记为 legacy，不作为 V2 研究证据。
+
+4. 启动 Technical V2 后台 Worker
 
 ```bash
-bash deploy/systemd/install_quant_precompute_service.sh
-systemctl --user status quant-precompute.service --no-pager
+bash deploy/systemd/install_quant_technical_v2_service.sh
+systemctl --user enable --now quant-technical-v2.service
 ```
 
 手动运行方式：
 
 ```bash
-python -m core.background.precompute_worker --poll-seconds 5 --max-concurrency 3
+python -m core.background.precompute_worker --profile technical_v2 --poll-seconds 5 --max-concurrency 3
 ```
 
-后台核心任务按固定档位刷新：`09:00 / 16:00 / 20:00`。缓存清理任务默认每 6 小时执行一次。
+Technical V2 按 `Asia/Shanghai` 的 `09:00 / 16:10 / 20:10` 调度。安装脚本只写入并校验用户服务，不会启动或重启服务。
+
+5. 检查并运行统一入口
+
+```bash
+python -m scripts.v2 doctor --mode real
+python -m scripts.v2 sync --mode real --history-sessions 800
+python -m scripts.v2 analyze --mode real --as-of latest --methods formula,jev
+```
 
 ## 说明
 
-- 当前为可运行的 MVP 骨架，默认使用本地模拟数据（无 token 也可跑通）
-- 配置好 `TUSHARE_TOKEN` 后可直接切换到 Tushare 拉取数据
-- `ai_prediction.py` 当前是占位策略，后续可接入模型推理
+- V2 默认 `DATA_MODE=real`，缺少 `TUSHARE_TOKEN` 或 `TYPESAFE_API_KEY` 时返回明确前置条件状态，不自动生成模拟行情或 Jev 概率。
+- 无网络演示使用 `python -m scripts.v2 demo --seed 20260923`；演示结果不属于研究证据。
+- V2 不连接真实券商，`live_trading=NOT_CONNECTED`。旧页面的基本面和 AI 占位策略不进入 V2。
 
 ## 并发与缓存架构（已落地）
 

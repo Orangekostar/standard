@@ -36,6 +36,7 @@ from core.factors.technical_v2 import (
 from core.models.jev_client import JevBudget, JevClient
 from core.pipeline.technical_v2 import TechnicalV2Pipeline
 from core.strategies.formula_v2 import FORMULA_CONFIG_IDS, score_stock
+from core.strategies.intent_v2 import derive_research_intent
 from core.strategies.jev_v2 import (
     build_jev_state,
     build_questions,
@@ -695,7 +696,24 @@ def _build_formula_predictions(
                     "probability_validation_status": None,
                 }
             )
-    return pd.DataFrame(rows), scores
+    predictions = pd.DataFrame(rows)
+    predictions["research_intent"] = None
+    predictions["account_action"] = None
+    predictions["order_quantity"] = None
+    predictions["intent_reason_codes"] = [() for _ in range(len(predictions))]
+    for indexes in predictions.groupby("entity_id", sort=False).groups.values():
+        entity_rows = predictions.loc[indexes].to_dict(orient="records")
+        for index in indexes:
+            decision = derive_research_intent(
+                entity_rows,
+                None,
+                horizon=int(predictions.at[index, "horizon"]),
+            )
+            predictions.at[index, "research_intent"] = decision.research_intent
+            predictions.at[index, "account_action"] = decision.account_action
+            predictions.at[index, "order_quantity"] = decision.order_quantity
+            predictions.at[index, "intent_reason_codes"] = decision.reason_codes
+    return predictions, scores
 
 
 def _unavailable_jev_rows(
@@ -831,8 +849,26 @@ def _build_jev_predictions(
                 }
             )
             route_statuses.append(pooled.status)
+    predictions = pd.DataFrame(rows)
+    if not predictions.empty:
+        predictions["research_intent"] = None
+        predictions["account_action"] = None
+        predictions["order_quantity"] = None
+        predictions["intent_reason_codes"] = [() for _ in range(len(predictions))]
+        for indexes in predictions.groupby("entity_id", sort=False).groups.values():
+            entity_rows = predictions.loc[indexes].to_dict(orient="records")
+            for index in indexes:
+                decision = derive_research_intent(
+                    entity_rows,
+                    None,
+                    horizon=int(predictions.at[index, "horizon"]),
+                )
+                predictions.at[index, "research_intent"] = decision.research_intent
+                predictions.at[index, "account_action"] = decision.account_action
+                predictions.at[index, "order_quantity"] = decision.order_quantity
+                predictions.at[index, "intent_reason_codes"] = decision.reason_codes
     status = "OK" if route_statuses and set(route_statuses) == {"OK"} else "PARTIAL"
-    return pd.DataFrame(rows), status, external_failure
+    return predictions, status, external_failure
 
 
 def _analyze(args: argparse.Namespace) -> CommandOutcome:
