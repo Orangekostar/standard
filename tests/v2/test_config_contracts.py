@@ -11,8 +11,13 @@ import numpy as np
 import pandas as pd
 
 from core.technical_v2.config import TechnicalV2Config
-from core.technical_v2.contracts import ContractError, RunStatus, canonical_json, json_safe, sha256_json
-
+from core.technical_v2.contracts import (
+    ContractError,
+    RunStatus,
+    canonical_json,
+    json_safe,
+    sha256_json,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -55,9 +60,8 @@ class TechnicalV2ConfigTest(unittest.TestCase):
 class JsonContractTest(unittest.TestCase):
     def test_canonical_json_rejects_non_finite_numbers(self) -> None:
         for value in (math.nan, math.inf, -math.inf, np.float64(np.nan)):
-            with self.subTest(value=value):
-                with self.assertRaises(ContractError):
-                    canonical_json({"probability": value})
+            with self.subTest(value=value), self.assertRaises(ContractError):
+                canonical_json({"probability": value})
 
     def test_json_safe_normalizes_supported_scalar_types(self) -> None:
         converted = json_safe(
