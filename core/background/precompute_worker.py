@@ -575,6 +575,7 @@ class PrecomputeWorker:
             dependency_names = (*spec.dependencies, *TECHNICAL_V2_OPTIONAL_DEPENDENCIES.get(task_name, ()))
             dependencies: dict[str, str] = {}
             binding: dict[str, Any] = {}
+            runtime_context: dict[str, Any] = {}
             for dependency in dependency_names:
                 snapshot = read_snapshot(dependency)
                 payload = snapshot.get("payload") if isinstance(snapshot, dict) else None
@@ -585,10 +586,21 @@ class PrecomputeWorker:
                         key: payload.get(key)
                         for key in ("run_id", "as_of_trade_date", "data_hash")
                     }
+                    source_params = payload.get("params")
+                    if isinstance(source_params, dict):
+                        runtime_context = {
+                            key: source_params[key]
+                            for key in ("mode", "db_path", "artifact_root")
+                            if key in source_params
+                        }
                 if dependency_snapshot_matches(snapshot, binding):
                     dependencies[dependency] = str(payload.get("artifact_id") or "")
             if binding:
-                return {**binding, "dependency_artifacts": dependencies}, False
+                return {
+                    **runtime_context,
+                    **binding,
+                    "dependency_artifacts": dependencies,
+                }, False
         params = dict(self._snapshot_params(task_name))
         if task_name in {"market_db_sync", "sector_fund_flow", "smart_pick", "dragon_radar", "ma5_pullback", "three_bull_pullback", "today_entry", "rebound_entry", "holding_advice"}:
             params.pop("end_date", None)

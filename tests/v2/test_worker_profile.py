@@ -25,6 +25,10 @@ class TechnicalV2WorkerProfileTest(unittest.TestCase):
         self.assertNotIn("smart_pick", worker.task_specs)
         for task_name, dependencies in TECHNICAL_V2_DEPENDENCIES.items():
             self.assertEqual(worker.task_specs[task_name].dependencies, dependencies)
+        self.assertEqual(
+            worker.task_specs["evaluate_matured_v2"].dependencies,
+            ("formula_v2",),
+        )
 
     def test_cli_parser_accepts_technical_v2_profile(self) -> None:
         args = _build_arg_parser().parse_args(["--profile", "technical_v2", "--once"])
@@ -96,6 +100,38 @@ class TechnicalV2WorkerProfileTest(unittest.TestCase):
             self.assertTrue(worker._task_dependency_blocked(spec, expected))
         with mock.patch("core.background.precompute_worker.read_snapshot", return_value=matching):
             self.assertFalse(worker._task_dependency_blocked(spec, expected))
+
+    def test_worker_propagates_root_runtime_context_to_dependencies(self) -> None:
+        worker = PrecomputeWorker(profile="technical_v2", max_concurrency=1)
+        snapshot = {
+            "status": "OK",
+            "payload": {
+                "run_id": "run-demo",
+                "as_of_trade_date": "20260923",
+                "data_hash": "hash-demo",
+                "artifact_id": "artifact-sync",
+                "params": {
+                    "mode": "demo",
+                    "db_path": "/tmp/demo.db",
+                    "artifact_root": "/tmp/artifacts",
+                    "history_sessions": 90,
+                },
+            },
+        }
+
+        with mock.patch("core.background.precompute_worker.read_snapshot", return_value=snapshot):
+            params, force_refresh = worker._resolve_task_params("features_v2", None)
+
+        self.assertFalse(force_refresh)
+        self.assertEqual(params["mode"], "demo")
+        self.assertEqual(params["db_path"], "/tmp/demo.db")
+        self.assertEqual(params["artifact_root"], "/tmp/artifacts")
+        self.assertEqual(params["run_id"], "run-demo")
+        self.assertEqual(
+            params["dependency_artifacts"],
+            {"data_v2_sync": "artifact-sync"},
+        )
+        self.assertNotIn("history_sessions", params)
 
     def test_task_progress_is_derived_from_completed_entities(self) -> None:
         runner = TechnicalV2TaskRunner(

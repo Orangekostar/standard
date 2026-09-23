@@ -22,7 +22,7 @@ TECHNICAL_V2_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "formula_v2": ("features_v2",),
     "jev_v2": ("features_v2",),
     "paper_v2": ("formula_v2",),
-    "evaluate_matured_v2": ("data_v2_sync",),
+    "evaluate_matured_v2": ("formula_v2",),
     "publish_technical_v2": ("formula_v2", "paper_v2", "evaluate_matured_v2"),
 }
 
