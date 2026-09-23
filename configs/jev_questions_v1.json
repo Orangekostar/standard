@@ -1,0 +1,19 @@
+{
+  "schema_version": "standard.jev-questions.v1",
+  "classes": ["up", "flat", "down"],
+  "horizons": [1, 3, 5],
+  "groups": [
+    {"id": "T", "slug": "trend", "label": "trend"},
+    {"id": "R", "slug": "relative", "label": "relative-strength"},
+    {"id": "S", "slug": "structure", "label": "price-structure"},
+    {"id": "V", "slug": "volume_price", "label": "volume-price"},
+    {"id": "C", "slug": "context", "label": "market-context"}
+  ],
+  "criteria": {
+    "up": "The future adjusted price return is greater than the supplied positive threshold.",
+    "flat": "The future adjusted price return is between the negative and positive thresholds, inclusive.",
+    "down": "The future adjusted price return is less than the supplied negative threshold."
+  },
+  "stock_target": "adjusted open-to-open price-direction class",
+  "sector_target": "frozen-member equal-weight adjusted open-to-open price-direction class"
+}

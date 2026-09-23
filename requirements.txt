@@ -4,3 +4,4 @@ streamlit>=1.30
 tushare>=1.4
 python-dotenv>=1.0
 akshare>=1.12
+httpx==0.28.1

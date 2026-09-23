@@ -1,0 +1,10 @@
+{
+  "schema_version": "standard.jev-pricing-cache.v1",
+  "model": "jev-1.13.0",
+  "input_usd_per_million_tokens": "0.042",
+  "output_usd_per_million_tokens": "0",
+  "max_total_tokens": 64000,
+  "max_state_plus_question_tokens": 32000,
+  "verified_on": "2026-09-23",
+  "source": "https://docs.typesafe.ai/models"
+}
