@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 import pandas as pd
 
@@ -21,7 +22,14 @@ class InstrumentClassification:
 
 
 def _compact_date(value: Any) -> str:
-    return str(value or "").strip().replace("-", "")
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip().replace("-", "")
 
 
 def classify_instrument(row: Mapping[str, Any], as_of: str) -> InstrumentClassification:
@@ -123,6 +131,8 @@ def resolve_sector_membership(memberships: pd.DataFrame, as_of: str) -> pd.DataF
         out[column] = out[column].map(_compact_date)
     valid_from = out["valid_from"].eq("") | out["valid_from"].le(target)
     valid_to = out["valid_to"].eq("") | out["valid_to"].ge(target)
-    current_snapshot = out.get("history_mode", pd.Series("", index=out.index)).astype(str).eq("CURRENT_SNAPSHOT_ONLY")
-    observed_after_target = current_snapshot & out["observed_at"].ne("") & out["observed_at"].str.slice(0, 8).gt(target)
+    observed_mode = out.get("history_mode", pd.Series("", index=out.index)).astype(str).isin(
+        {"CURRENT_SNAPSHOT_ONLY", "OBSERVED_PIT"}
+    )
+    observed_after_target = observed_mode & out["observed_at"].ne("") & out["observed_at"].str.slice(0, 8).gt(target)
     return out.loc[valid_from & valid_to & ~observed_after_target].reset_index(drop=True)

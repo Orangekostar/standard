@@ -10,7 +10,11 @@ import pandas as pd
 from core.data.data_manager import DataManager
 from core.data.v2_provider import DemoV2Provider, RealV2Provider, normalize_daily_frame
 from core.data.v2_store import V2Store
-from core.data.v2_universe import build_analysis_universe, classify_instrument, resolve_sector_membership
+from core.data.v2_universe import (
+    build_analysis_universe,
+    classify_instrument,
+    resolve_sector_membership,
+)
 
 
 class _CountingTransport:
@@ -255,9 +259,11 @@ class V2ProviderBoundaryTest(unittest.TestCase):
     def test_legacy_data_manager_real_mode_does_not_call_mock_generator(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             manager = DataManager(cache_dir=Path(tmp_dir), data_mode="real")
-            with mock.patch.object(manager, "_fetch_daily_tushare", return_value=pd.DataFrame()):
-                with mock.patch.object(manager, "_mock_daily_data", wraps=manager._mock_daily_data) as mock_generator:
-                    result = manager.get_daily_data("000001.SZ", "20260901", "20260922", use_cache=False)
+            with (
+                mock.patch.object(manager, "_fetch_daily_tushare", return_value=pd.DataFrame()),
+                mock.patch.object(manager, "_mock_daily_data", wraps=manager._mock_daily_data) as mock_generator,
+            ):
+                result = manager.get_daily_data("000001.SZ", "20260901", "20260922", use_cache=False)
 
         self.assertTrue(result.empty)
         mock_generator.assert_not_called()
@@ -332,6 +338,7 @@ class V2UniverseTest(unittest.TestCase):
             [
                 {"namespace": "SW_L1", "sector_id": "bank", "ts_code": "600000.SH", "valid_from": "20200101", "valid_to": "20211231", "history_mode": "RECONSTRUCTED_PIT"},
                 {"namespace": "CURRENT", "sector_id": "finance", "ts_code": "600000.SH", "valid_from": "20260922", "valid_to": None, "history_mode": "CURRENT_SNAPSHOT_ONLY"},
+                {"namespace": "SW_L1", "sector_id": "observed", "ts_code": "600001.SH", "valid_from": "20200101", "valid_to": None, "observed_at": "2026-09-01T16:10:00+08:00", "history_mode": "OBSERVED_PIT"},
             ]
         )
 
@@ -339,7 +346,7 @@ class V2UniverseTest(unittest.TestCase):
         current = resolve_sector_membership(memberships, as_of="20260922")
 
         self.assertEqual(historical["sector_id"].tolist(), ["bank"])
-        self.assertEqual(set(current["sector_id"]), {"finance"})
+        self.assertEqual(set(current["sector_id"]), {"finance", "observed"})
 
 
 if __name__ == "__main__":

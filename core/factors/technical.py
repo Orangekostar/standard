@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from core.factors.base import BaseFactor
+from core.factors.base import BaseFactor, causal_expanding_percentile
 
 
 class ReversalFactor(BaseFactor):
@@ -72,13 +72,13 @@ class BreakoutFactor(BaseFactor):
 
 
 class Alpha9ReversalFactor(BaseFactor):
-    name = "alpha_9_reversal"
+    name = "legacy_causal_alpha9_reversal_v2"
 
     def __init__(self, window: int = 5) -> None:
         self.window = window
 
     def compute(self, df: pd.DataFrame) -> pd.Series:
         ret_n = df["close"].pct_change(self.window).fillna(0.0)
-        rank_n = ret_n.rank(pct=True, method="average").fillna(0.5)
+        rank_n = causal_expanding_percentile(ret_n).fillna(0.5)
         sign_n = ret_n.apply(lambda x: 1.0 if x > 0 else (-1.0 if x < 0 else 0.0))
         return (rank_n * sign_n).fillna(0.0)

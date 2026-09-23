@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, Mapping
+from collections.abc import Iterable, Mapping
+from typing import Any, ClassVar
 
 import numpy as np
 import pandas as pd
@@ -11,18 +12,27 @@ from core.strategies.base import BaseStrategy
 
 class FactorSelectionStrategy(BaseStrategy):
     name = "factor_selection"
+    _LEGACY_FACTOR_ALIASES: ClassVar[dict[str, str]] = {
+        "alpha_6_turnover_cov": "legacy_causal_alpha6_turnover_cov_v2",
+        "alpha_9_reversal": "legacy_causal_alpha9_reversal_v2",
+    }
 
     def __init__(
         self,
         threshold: float = 0.1,
         enabled_factors: Iterable[str] | None = None,
-        factor_weights: Dict[str, float] | None = None,
+        factor_weights: dict[str, float] | None = None,
     ) -> None:
         self.threshold = threshold
         self.factors = build_default_factors()
         default_names = list(self.factors.keys())
-        self.enabled_factors = list(enabled_factors) if enabled_factors is not None else default_names
-        self.factor_weights = factor_weights or {name: 1.0 for name in self.enabled_factors}
+        requested = list(enabled_factors) if enabled_factors is not None else default_names
+        self.enabled_factors = [self._LEGACY_FACTOR_ALIASES.get(name, name) for name in requested]
+        raw_weights = factor_weights or {name: 1.0 for name in self.enabled_factors}
+        self.factor_weights = {
+            self._LEGACY_FACTOR_ALIASES.get(name, name): float(weight)
+            for name, weight in raw_weights.items()
+        }
 
     @staticmethod
     def _zscore(series: pd.Series) -> pd.Series:
@@ -97,7 +107,7 @@ class FactorSelectionStrategy(BaseStrategy):
                 if c in row and pd.notna(row[c]):
                     try:
                         return float(row[c])
-                    except Exception:
+                    except (TypeError, ValueError):
                         continue
             return float(default)
 
@@ -138,6 +148,9 @@ class FactorSelectionStrategy(BaseStrategy):
                 "last_minute_time": minute_row["minute_time"],
             }
 
+        if minute_row["minute_time"] <= state.get("last_minute_time"):
+            raise ValueError("minute bars must be strictly increasing after deduplication")
+
         state["high"] = float(max(float(state["high"]), minute_row["high"], minute_row["close"]))
         state["low"] = float(min(float(state["low"]), minute_row["low"], minute_row["close"]))
         state["close"] = float(minute_row["close"])
@@ -156,8 +169,9 @@ class FactorSelectionStrategy(BaseStrategy):
         minute_bar: Mapping[str, Any] | pd.Series,
         state: dict[str, Any] | None = None,
     ) -> tuple[pd.Series, pd.DataFrame, dict[str, Any]]:
-        daily = self._normalize_daily_frame(daily_df)
         m = self._extract_minute_row(minute_bar)
+        daily = self._normalize_daily_frame(daily_df)
+        daily = daily.loc[daily["trade_date"] < m["trade_date"]].reset_index(drop=True)
         state = self._update_intraday_state(state, m)
 
         base_row = daily.iloc[-1].to_dict() if not daily.empty else {}
@@ -177,7 +191,7 @@ class FactorSelectionStrategy(BaseStrategy):
         today = pd.Timestamp(state["trade_date"])
         mask_today = daily["trade_date"] == today
         if mask_today.any():
-            daily.loc[mask_today, list(row.keys())] = [row[k] for k in row.keys()]
+            daily.loc[mask_today, list(row.keys())] = [row[k] for k in row]
             merged = daily
         else:
             merged = pd.concat([daily, pd.DataFrame([row])], ignore_index=True)
@@ -206,7 +220,12 @@ class FactorSelectionStrategy(BaseStrategy):
                 break
         if sort_col:
             minute_sorted[sort_col] = pd.to_datetime(minute_sorted[sort_col], errors="coerce")
-            minute_sorted = minute_sorted.sort_values(sort_col).reset_index(drop=True)
+            minute_sorted = (
+                minute_sorted.dropna(subset=[sort_col])
+                .sort_values(sort_col)
+                .drop_duplicates(subset=[sort_col], keep="last")
+                .reset_index(drop=True)
+            )
 
         for _, bar in minute_sorted.iterrows():
             latest, _, state = self.generate_intraday_signal(daily_df=daily_df, minute_bar=bar, state=state)
