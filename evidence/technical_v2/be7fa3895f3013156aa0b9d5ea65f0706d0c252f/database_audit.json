@@ -1,0 +1,26 @@
+{
+  "counts": {
+    "analysis_runs": 1,
+    "daily_raw": 3846,
+    "evaluation_rows": 0,
+    "feature_rows": 131,
+    "label_rows": 13461,
+    "paper_accounts": 2,
+    "paper_decisions": 12,
+    "paper_fills": 0,
+    "paper_lots": 0,
+    "paper_orders": 0,
+    "paper_valuations": 2,
+    "prediction_rows": 42,
+    "sync_audits": 641
+  },
+  "foreign_key_check": [],
+  "integrity_check": "ok",
+  "mode": "DEMO_ONLY",
+  "schema_migrations": [
+    1,
+    2,
+    3
+  ],
+  "status": "PASS"
+}

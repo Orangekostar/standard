@@ -1,0 +1,22 @@
+{
+  "checks": {
+    "compileall": "PASS",
+    "database_foreign_keys": "PASS",
+    "database_integrity": "PASS",
+    "diff_check": "PASS",
+    "evaluation_hashes": "PASS",
+    "prompt_audit": "PASS",
+    "ruff_v2_scope": "PASS",
+    "streamlit_health": "PASS",
+    "ui_visual_review": "PASS",
+    "unit_tests": "PASS",
+    "worker_dag": "PASS"
+  },
+  "known_baseline_warning": "Legacy tests emit unclosed SQLite ResourceWarning messages without failures.",
+  "screenshots": {
+    "desktop-1440x1000.png": "768f96136b17f2d43318a4052e6d070cea2bee00b4cb2d74a40e9882e59adedd",
+    "mobile-390x844.png": "69f1927a7ab04213e0af8d8af512a35f7a87094fc7eaef494abdbb063146ada0"
+  },
+  "test_count": 187,
+  "test_elapsed_seconds": 46.552
+}

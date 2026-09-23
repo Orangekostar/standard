@@ -1,0 +1,57 @@
+{
+  "analysis": {
+    "coverage_rows": 42,
+    "formula_status": "OK",
+    "formula_valid_rows": 21,
+    "freshness_status": "CURRENT",
+    "jev_status": "DEMO_ANALYZE_NETWORK_DISABLED",
+    "publication_id": "365761d5108df315ddd26b1168209542171bb582efb913cd6884223dd56c6131",
+    "run_id": "run-17790695de0951d52c46",
+    "sector_feature_rows": 1,
+    "status": "PARTIAL"
+  },
+  "code_commit": "be7fa3895f3013156aa0b9d5ea65f0706d0c252f",
+  "evaluation": {
+    "artifact_files": 14,
+    "final_test_opened": false,
+    "label_rows": 13461,
+    "mature_signal_dates": 615,
+    "run_id": "evaluation-20260923-429241fabcfef0c0",
+    "selection_status": "NO_ELIGIBLE_CANDIDATE",
+    "split_status": "OK",
+    "status": "NO_ELIGIBLE_CANDIDATE"
+  },
+  "incremental_sync": {
+    "as_of_trade_date": "20260923",
+    "daily_rows": 6,
+    "sessions": 640,
+    "sessions_fetched": 1,
+    "status": "OK"
+  },
+  "initial_sync": {
+    "as_of_trade_date": "20260922",
+    "daily_rows": 3840,
+    "instruments": 6,
+    "sessions": 640,
+    "sessions_fetched": 640,
+    "status": "OK"
+  },
+  "matured_evaluation": {
+    "evaluated_rows": 0,
+    "formula_status": "FORWARD_EVIDENCE_ACCUMULATING",
+    "jev_status": "JEV_SHADOW_UNVALIDATED",
+    "status": "NO_NEW_MATURE_LABELS"
+  },
+  "mode": "DEMO_ONLY",
+  "paper": {
+    "accounts": [
+      "formula-paper",
+      "jev-shadow-paper"
+    ],
+    "decision_rows": 12,
+    "orders_created": 0,
+    "orders_executed": 0,
+    "status": "NO_EXECUTABLE_ORDERS"
+  },
+  "status": "PASS"
+}

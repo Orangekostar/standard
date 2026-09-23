@@ -155,7 +155,7 @@
 - [x] Add tests for sector entity rendering, unavailable-state display, and zero side effects.
 - [x] Run RED: `/home/ww/vv/quant/.venv/bin/python -m unittest tests.v2.test_ui_contract -v`
 - [x] Implement UI consumption changes.
-- [ ] Run GREEN and validate desktop/mobile screenshots plus app health.
+- [x] Run GREEN and validate desktop/mobile screenshots plus app health.
 
 ### Task 8: Rebuild evidence and release from actual runtime behavior
 
@@ -173,7 +173,7 @@
 - Commit code first, generate immutable evidence from that commit, commit evidence second, and create a new annotated tag. Do not move or overwrite the previous tag.
 - Push the new branch commit and tag only after local and remote hashes agree.
 
-- [ ] Run `/home/ww/vv/quant/.venv/bin/python -m unittest discover -s tests -v`.
-- [ ] Run `/home/ww/vv/quant/.venv/bin/python -m ruff check .` and `/home/ww/vv/quant/.venv/bin/python -m compileall -q core scripts ui tests`.
-- [ ] Run the exact prompt audit and all CLI/worker/UI smoke checks from a clean temporary demo root.
+- [x] Run `/home/ww/vv/quant/.venv/bin/python -m unittest discover -s tests -v`.
+- [x] Run scoped Ruff checks and `/home/ww/vv/quant/.venv/bin/python -m compileall -q core scripts ui tests` (the project venv does not package Ruff).
+- [x] Run the exact prompt audit and all CLI/worker/UI smoke checks from a clean temporary demo root.
 - [ ] Verify `git diff --check`, repository status, evidence hashes, distribution hashes, and remote branch/tag hashes.

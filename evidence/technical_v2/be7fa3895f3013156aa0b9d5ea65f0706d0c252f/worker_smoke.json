@@ -1,0 +1,16 @@
+{
+  "code_commit": "be7fa3895f3013156aa0b9d5ea65f0706d0c252f",
+  "mode": "DEMO_ONLY",
+  "run_id": "run-88011c26f396d5ea89e0",
+  "status": "PASS",
+  "tasks": {
+    "data_v2_sync": "OK",
+    "evaluate_matured_v2": "NO_NEW_MATURE_LABELS",
+    "features_v2": "OK",
+    "formula_v2": "OK",
+    "jev_v2": "PARTIAL",
+    "paper_v2": "NO_EXECUTABLE_ORDERS",
+    "publish_technical_v2": "OK"
+  },
+  "worker_status": "idle"
+}

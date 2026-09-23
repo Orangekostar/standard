@@ -1,0 +1,13 @@
+{
+  "feature_rows": 3846,
+  "label_rows": 13461,
+  "latest_complete_date": "20260923",
+  "mature_signal_dates": 615,
+  "reason_codes": [],
+  "run_id": "evaluation-20260923-429241fabcfef0c0",
+  "schema_version": "technical-v2-data-audit.v1",
+  "sector_entities": 1,
+  "session_count": 641,
+  "status": "OK",
+  "stock_entities": 6
+}

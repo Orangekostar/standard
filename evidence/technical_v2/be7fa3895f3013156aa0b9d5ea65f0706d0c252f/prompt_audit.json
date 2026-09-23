@@ -1,0 +1,50 @@
+{
+  "analysis_publication": "PASS",
+  "durable_analysis_rows": {
+    "entity_types": [
+      "sector",
+      "stock"
+    ],
+    "feature_rows": 131,
+    "prediction_methods": [
+      "formula",
+      "jev"
+    ],
+    "prediction_rows": 42,
+    "status": "PASS"
+  },
+  "evaluation_package": {
+    "candidate_ids": [
+      "F0_BALANCED",
+      "F1_TREND",
+      "F2_STRUCTURE",
+      "J0_EQUAL_POOL",
+      "J1_WEIGHTED_POOL",
+      "LEGACY_SIGNAL_EXEC_V2",
+      "M0_MOMENTUM"
+    ],
+    "evaluation_status": "NO_ELIGIBLE_CANDIDATE",
+    "final_test_opened": false,
+    "split_status": "OK",
+    "status": "PASS"
+  },
+  "failed_checks": [],
+  "no_placeholder_success_paths": "PASS",
+  "paper_accounts_and_audit": {
+    "accounts": 2,
+    "decisions": 12,
+    "status": "PASS",
+    "valuations": 2
+  },
+  "schema": {
+    "migrations": [
+      1,
+      2,
+      3
+    ],
+    "status": "PASS"
+  },
+  "status": "PASS",
+  "stock_sector_coverage": "PASS",
+  "worker_handlers": "PASS"
+}

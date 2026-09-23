@@ -1,0 +1,28 @@
+{
+  "artifact_hashes": {
+    "calibration_bins.csv": "427388855580c8d0aff170d9db2bf76dc7f7592b4d0eeb2e3797b0b36e6a3203",
+    "candidate_comparison.csv": "af02abf72b691786c752f752273334a7006cf7f4157b8c230fff534a73fb472d",
+    "coverage_by_date.csv": "8a57c426e0acf6e3cf95d4cf3e2702c2c66defa7f40a67748f49ad16e88bc72b",
+    "coverage_by_sector.csv": "c11d2f2bbf57d5829ab9222706e4a82da82ae52cba81fb8de908f519c108cb4b",
+    "daily_nav.csv": "07a496073cd4aa069f6237c06b03e12abac96b22ed8f781a9a7021b7a88df3f9",
+    "data_audit.json": "0772d75338219636c0f14a128b95eb905e4fcc633a96226cd59bf0dbd7111c00",
+    "dataset_manifest.json": "7a88f2c390147c5153ed57063e5b822869d1b99365250ada5704c379e84503c8",
+    "factor_ic.csv": "d3fa787188409a86ff426f723f33e9c631e99f0fb7e38c09349c6d34fbbcbf46",
+    "factor_missingness.csv": "d5cf3030f5d90be5e59ceaecad95559eb5518e7f7ec70859d5c364535baf47c4",
+    "orders.csv": "2b6a93f2d906bd2c60885be956bf8aff5305d4bf93cb7b7570c9b31b45b74cca",
+    "probability_metrics.csv": "4e0fb0bd4fa5284ed41a3bd8e58d9fcafc60ef9da9174db987ce4fee4b7ec6a6",
+    "selection.json": "0cfd01d1c2b09a37d758fecaed078efe9423439d69cc680bd282deac6431a518",
+    "trades.csv": "10beee232309b5788a74170d349441d97986bf58975d0b9af93e7328f2dc0c14"
+  },
+  "data_source_mode": "demo",
+  "dataset_hash": "429241fabcfef0c05e3b5b61f3924a3672b72618f51d7c386e59d2951bfa8da4",
+  "final_test_opened": false,
+  "jev_selection_status": "UNAVAILABLE_CACHED_HISTORY",
+  "protocol": "fixed-v1",
+  "run_id": "evaluation-20260923-429241fabcfef0c0",
+  "schema_version": "technical-v2-evaluation-run.v1",
+  "selection_sha256": "05ce2413e30cb7ccf67d719b152976c8575b50fb9f2d5eccc0c635a0d377b4c2",
+  "selection_status": "NO_ELIGIBLE_CANDIDATE",
+  "split_status": "OK",
+  "status": "NO_ELIGIBLE_CANDIDATE"
+}

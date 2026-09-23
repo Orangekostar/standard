@@ -1,0 +1,8 @@
+split,candidate_type,config_id,status,net_sharpe,turnover,closed_trades,trade_dates,max_drawdown,unresolved,net_return,reason_codes
+validation,formula,F0_BALANCED,OK,0.0,0.0,0,0,-0.0,False,0.0,
+validation,formula,F1_TREND,OK,0.0,0.0,0,0,-0.0,False,0.0,
+validation,formula,F2_STRUCTURE,OK,0.0,0.0,0,0,-0.0,False,0.0,
+validation,benchmark,M0_MOMENTUM,OK,1.4508653037513177,6.115837836021807,62,47,0.12524936734972625,False,0.18468931999999993,
+validation,benchmark,LEGACY_SIGNAL_EXEC_V2,OK,1.229564943220513,6.157188330983819,62,49,0.12524936734972625,False,0.12912725000000003,
+validation,jev,J0_EQUAL_POOL,UNAVAILABLE_CACHED_HISTORY,0.0,0.0,0,0,0.0,True,,JEV_HISTORICAL_CACHE_UNAVAILABLE
+validation,jev,J1_WEIGHTED_POOL,UNAVAILABLE_CACHED_HISTORY,0.0,0.0,0,0,0.0,True,,JEV_HISTORICAL_CACHE_UNAVAILABLE
