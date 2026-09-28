@@ -1,0 +1,65 @@
+{
+  "scope": "PROMPT_AND_PARAMETER_CHECKS_ONLY_NOT_BACKTEST_TESTS",
+  "checks": [
+    {
+      "check": "两个源码版本均为40位固定SHA",
+      "result": "PASS"
+    },
+    {
+      "check": "504日切分和126日测试子段一致",
+      "result": "PASS"
+    },
+    {
+      "check": "12个回放单元且无策略参数搜索",
+      "result": "PASS"
+    },
+    {
+      "check": "主费用参考往返为0.00312",
+      "result": "PASS"
+    },
+    {
+      "check": "高滑点参考往返为0.00512",
+      "result": "PASS"
+    },
+    {
+      "check": "两日冷却边界：+2不可进入、+3可进入",
+      "result": "PASS"
+    },
+    {
+      "check": "风险乘数从不超过基础仓位",
+      "result": "PASS"
+    },
+    {
+      "check": "ATR倍率clip和3%-12%距离明确",
+      "result": "PASS"
+    },
+    {
+      "check": "A/B同F0同5期，未把止损新增伪装成A旧功能",
+      "result": "PASS"
+    },
+    {
+      "check": "主实验无付费模型和生产变更",
+      "result": "PASS"
+    },
+    {
+      "check": "正文包含新命令五阶段且说明尚需实现",
+      "result": "PASS"
+    },
+    {
+      "check": "零交易/样本不足/会计异常有独立结论",
+      "result": "PASS"
+    },
+    {
+      "check": "正文代码块成对、必需任务0-15俱在",
+      "result": "PASS"
+    },
+    {
+      "check": "未开放历史测试被严格区别于未暴露统计",
+      "result": "PASS"
+    },
+    {
+      "check": "只读快照/独立账户/生产指针保护都有说明",
+      "result": "PASS"
+    }
+  ]
+}
