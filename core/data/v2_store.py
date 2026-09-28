@@ -639,10 +639,6 @@ class V2Store:
         if frame.empty:
             return frame
 
-        def latest_value(values: pd.Series) -> Any:
-            available = values.dropna()
-            return available.iloc[-1] if not available.empty else None
-
         value_columns = [
             "is_suspended",
             "is_risk_warning",
@@ -656,7 +652,7 @@ class V2Store:
         ]
         return (
             frame.groupby(["code", "date"], as_index=False, sort=True)[value_columns]
-            .agg(latest_value)
+            .last()
             .sort_values(["code", "date"])
             .reset_index(drop=True)
         )
@@ -1261,6 +1257,7 @@ class V2Store:
         method: str,
         initial_cash_cents: int,
         account_type: str = "paper",
+        initial_event_at: str | None = None,
     ) -> None:
         if int(initial_cash_cents) < 0:
             raise ContractError("initial paper cash cannot be negative")
@@ -1291,7 +1288,7 @@ class V2Store:
                 (
                     f"initial:{account_id}",
                     str(account_id),
-                    created_at,
+                    str(initial_event_at or created_at),
                     int(initial_cash_cents),
                     int(initial_cash_cents),
                     str(account_id),

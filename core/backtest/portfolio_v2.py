@@ -82,12 +82,14 @@ class PaperPortfolio:
         method: str,
         initial_cash_cents: int,
         account_type: str = "paper",
+        initial_event_at: str | None = None,
     ) -> None:
         self.store.create_paper_account(
             self.account_id,
             method=method,
             initial_cash_cents=initial_cash_cents,
             account_type=account_type,
+            initial_event_at=initial_event_at,
         )
 
     def cash_cents(self) -> int:
@@ -236,7 +238,7 @@ def apply_corporate_actions(
                 unresolved += 1
                 statuses.append({"event_id": event_id, "status": "UNRESOLVED"})
                 continue
-            if record_date > cutoff or eligible_quantity <= 0:
+            if record_date > cutoff or (eligible_quantity <= 0 and existing is None):
                 statuses.append({"event_id": event_id, "status": "NOT_APPLICABLE"})
                 continue
             if existing is None:

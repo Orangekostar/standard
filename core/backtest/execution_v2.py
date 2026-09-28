@@ -91,15 +91,16 @@ class SecurityRule:
     quantity_increment: int | None = None
     maximum_quantity: int | None = None
 
-    def floor_buy_quantity(self, requested: float) -> int:
-        if not math.isfinite(float(requested)):
+    def floor_buy_quantity(self, requested: float | Decimal) -> int:
+        numeric = _decimal(requested)
+        if numeric is None:
             return 0
         minimum = self.minimum_quantity or self.lot_size
         increment = self.quantity_increment or self.lot_size
-        capped = min(float(requested), self.maximum_quantity or math.inf)
+        capped = min(numeric, Decimal(self.maximum_quantity)) if self.maximum_quantity is not None else numeric
         if capped < minimum:
             return 0
-        return minimum + math.floor((capped - minimum) / increment) * increment
+        return minimum + int(((capped - minimum) / increment).to_integral_value(rounding=ROUND_FLOOR)) * increment
 
     def floor_sell_quantity(self, requested: int, available: int) -> int:
         if available <= 0 or requested <= 0:

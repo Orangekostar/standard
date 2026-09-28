@@ -5,7 +5,7 @@ from dataclasses import replace
 from decimal import Decimal
 
 from core.backtest.execution_v2 import execute_open_orders
-from core.backtest.portfolio_v2 import apply_corporate_actions, mark_portfolio
+from core.backtest.portfolio_v2 import PaperPortfolio, apply_corporate_actions, mark_portfolio
 from tests.v2 import test_execution_v2 as fixtures
 
 
@@ -35,6 +35,9 @@ class SharedExecutionTest(unittest.TestCase):
         bad = replace(self.buy_order, quantity=199)
         self.assertEqual(self.execute([bad], rule=rule)[0].filled_quantity, 0)
         self.assertEqual(self.portfolio.cash_cents(), 100_000_000)
+
+    def test_quantity_just_below_a_unit_is_not_rounded_up_by_float_conversion(self):
+        self.assertEqual(self.rule.floor_buy_quantity(Decimal("199.99999999999999999999")), 100)
 
     def test_same_code_exit_blocks_new_entry_even_if_exit_is_pending(self):
         self.execute([self.buy_order])
@@ -81,6 +84,30 @@ class SharedExecutionTest(unittest.TestCase):
         settled = mark_portfolio(self.store, "formula-paper", "20260928", {"600000.SH": 10})
         self.assertEqual(settled.nav_cents, 100_009_399)
         self.assertEqual(settled.receivable_cents, 0)
+
+    def test_historical_initial_capital_precedes_the_first_historical_fill(self):
+        historical = PaperPortfolio(self.store, "historical")
+        historical.open_account(method="formula", initial_cash_cents=100_000_000,
+                                initial_event_at="20240102T00:00:00+08:00")
+        order = replace(self.buy_order, order_id="historical-buy", account_id="historical",
+                        earliest_trade_date="20240103")
+        result = self.execute([order], "20240103")[0]
+        self.assertEqual(result.status, "FILLED")
+        self.assertEqual(historical.cash_cents(), 99_899_399)
+
+    def test_confirmed_dividend_settles_after_the_eligible_position_was_sold(self):
+        self.execute([self.buy_order])
+        event = dict(event_id="sold-div", code="600000.SH", record_date="20260924",
+                     ex_date="20260925", pay_date="20260928", cash_per_share="1")
+        apply_corporate_actions(self.store, "formula-paper", [event], as_of_date="20260924")
+        sell = replace(self.buy_order, order_id="sell-before-pay", side="SELL",
+                       earliest_trade_date="20260925", price_ceiling_floor=None)
+        self.assertEqual(self.execute([sell], "20260925")[0].fee_cents, 551)
+        self.assertEqual(self.portfolio.cash_cents(), 99_998_748)
+        apply_corporate_actions(self.store, "formula-paper", [event], as_of_date="20260928")
+        self.assertEqual(self.portfolio.cash_cents(), 100_008_748)
+        mark = mark_portfolio(self.store, "formula-paper", "20260928", {})
+        self.assertEqual(mark.receivable_cents, 0)
 
 
 if __name__ == "__main__":

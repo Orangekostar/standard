@@ -98,3 +98,35 @@ is_risk_warning is entirely NULL. Snapshot preparation must independently
 revalidate and record actual frozen counts. Consequences: UNIVERSE_HISTORY_LIMITED,
 HISTORICAL_RISK_WARNING_UNKNOWN, RAW_PRICE_LEDGER_CORPORATE_ACTIONS_INCOMPLETE;
 no survivor-free universe or unqualified account net-PnL superiority claim.
+
+## Shared Replay Corrections Found Before Comparison Test
+
+Historical account initialization needs a logical initial-capital event before
+the first historical fill. The original default uses wall-clock creation time,
+which sorts after fills from earlier years. Optional `initial_event_at` preserves
+the production default while allowing all experiment accounts to reconcile.
+
+An already-confirmed cash dividend must settle even when its eligible shares
+were sold before payment. The shared corporate-action guard now retains that
+obligation. This does not invent missing corporate-action rows in the real DB.
+
+Independent validated execution-open and valuation-close fields are retained
+before full OHLCV feature validation. Thus same-day close/high/volume validity
+cannot decide an earlier opening fill. Quantity flooring remains Decimal through
+the legal-unit boundary; a value just below200 cannot round up through float.
+The provider's canonical security type is lowercase `stock`, not `STOCK`;
+normalization is shared and current ST names remain excluded.
+
+Allocation reserves the finalized order's ceiling-price notional plus exact
+buy fees, after B's multiplier and quantity-specific edge check. All groups use
+the same conservative capacity reservation and never spend expected exit cash.
+This differs from the unmodified native reference's reference-price reservation
+and is not a Prism benefit. The status reader's native last-non-null-column
+contract is unchanged; pandas `GroupBy.last` replaces slow Python aggregation.
+
+Development verification:54 targeted tests passed before full-market preparation.
+The first real50x160 offline smoke completed in37.169s under cProfile with peak
+process RSS1385656320 bytes and0 API calls. Its preliminary failed attempt was an
+adapter case mismatch, not absent market data. The profile identified15.732s in
+status aggregation; later equivalent optimization is covered independently.
+Main comparison test has not been opened. These are not TEST_EXPOSED_BUGFIXes.

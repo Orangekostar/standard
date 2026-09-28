@@ -33,7 +33,7 @@ Files: this design/plan, `SOURCE_AUDIT.md`, original instructions, source licens
 - [x] Read the required V2 and fixed Prism modules and license.
 - [x] Extract the complete supplied instruction bundle without modifications.
 - [x] Finish the source/function/dated-rule and old-holdout audit.
-- [ ] Commit the design and instruction evidence with an explicit whitelist.
+- [x] Commit the design and instruction evidence with an explicit whitelist (237ccba).
 
 ## Task 1: Shared Execution Correctness
 
@@ -49,7 +49,7 @@ schema replacement. Sell lot caps persist in paper_order_details payload_json.
   confirm missing behavior fails rather than fixture errors.
 - [x] Implement legal quantity flooring, dated one-day validity, lot-directed
   sells, limit-safe slipped prices and confirmed receivables in the shared engine.
-- [ ] Run targeted existing execution/corporate-action/metrics tests; commit.
+- [x] Run targeted existing execution/corporate-action/metrics tests; commit (d04bf5f).
 
 ## Task 2: Frozen Config And Pure B Policy
 
@@ -82,13 +82,17 @@ Interfaces: `prepare(source_db,experiment_root,config)->manifest`,
 - [ ] Align sessions, compute original factors/scores in chunks, h5 labels,
   fixed split and boundary purge. Persist common train model and bounded caches.
 - [ ] Run the real 50x160 smoke once before full-market features once; record RAM/time.
+  First completed real smoke: 50 stocks/160 sessions,37.169s with cProfile,
+  peak process RSS1385656320 bytes. Initial native `stock` case mismatch was
+  corrected before this completed run; no market/API resync. The subsequent
+  equivalent status-aggregation optimization is checked by a non-null merge test.
 
 ## Task 4: Shared Stateful Replay
 
 Files: `core/backtest/prism_compare_engine.py`, `tests/v2/test_prism_replay.py`.
 Interfaces: `replay_cell(experiment_root,config,strategy,split,cost,lambda_c,out)->dict`.
 
-- [ ] Fixture tests first: B extras disabled equals A orders/NAV; signal-close to
+- [x] Fixture tests first: B extras disabled equals A orders/NAV; signal-close to
   next-open execution; new lot T+1; stop fill only subsequent sellable open;
   two lots with different expiry sell only the expired lot; failed exit does not
   arm cooldown; full actual flat does. Unknown prices never erase a held asset.
@@ -97,6 +101,9 @@ Interfaces: `replay_cell(experiment_root,config,strategy,split,cost,lambda_c,out
 - [ ] Export all eight per-cell artifacts, actual rejection funnel and reconciliation.
 - [ ] Cost test: 100shares@10 fee501cents; slipped price10.01 exactly once; stress
   changes quantity/fill paths instead of subtracting a terminal adjustment.
+  Quantity-specific stress rejection,expiry/stop/reduction deduplication and
+  partial-reduction cooldown tests pass. Full corporate-share lot attribution,
+  stage integration and `replay_cell` are still pending; do not mark T4 complete.
 
 ## Task 5: Stage CLI And Research Evidence
 

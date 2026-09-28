@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import copy
 import tempfile
 import unittest
 from contextlib import closing
@@ -14,8 +15,12 @@ from core.analysis.sector_v2 import build_context
 from core.backtest.prism_compare_rules import security_rule
 from core.factors.technical_v2 import compute_technical_v2
 from core.data.v2_store import V2Store
-from core.pipeline.prism_compare_config import file_sha256, load_config
-from core.pipeline.prism_compare_data import align_panel, audit_snapshot, create_snapshot, experiment_lock, fit_common_bins
+from core.pipeline.prism_compare_config import file_sha256, load_config, write_json
+from core.pipeline.prism_compare_data import (
+    align_panel, audit_snapshot, create_snapshot, experiment_lock, fit_common_bins,
+    fixed_split_manifest, load_daily_cache, score_features, write_replay_chunk,
+    prepare,
+)
 from core.technical_v2.contracts import ContractError
 
 
@@ -73,6 +78,24 @@ class PrismDataTest(unittest.TestCase):
         features = compute_technical_v2(panel, context, as_of=dates[-1])
         self.assertTrue(pd.isna(features.iloc[81].Q02))
 
+    def test_open_execution_does_not_depend_on_same_day_close_high_or_volume(self):
+        dates, raw, adj, roster = self.fixture(3)
+        raw.loc[1, "open"] = 10.0
+        raw.loc[1, ["close", "high", "amount_cny", "volume_shares"]] = np.nan
+        panel = align_panel(raw, adj, dates, roster)
+        self.assertEqual(panel.loc[1, "execution_open"], 10.0)
+        self.assertTrue(pd.isna(panel.loc[1, "adjusted_open"]))
+        self.assertFalse(panel.loc[1, "real_bar"])
+
+    def test_real_close_can_value_an_asset_without_becoming_a_feature_bar(self):
+        dates, raw, adj, roster = self.fixture(3)
+        raw.loc[1, "close"] = 9.5
+        raw.loc[1, "amount_cny"] = 0
+        panel = align_panel(raw, adj, dates, roster)
+        self.assertEqual(panel.loc[1, "valuation_close"], 9.5)
+        self.assertTrue(pd.isna(panel.loc[1, "comparison_close"]))
+        self.assertFalse(panel.loc[1, "real_bar"])
+
     def test_future_adjustment_cannot_rescale_past_comparison_price_or_factors(self):
         dates, raw, adj, roster = self.fixture()
         early = align_panel(raw.iloc[:100], adj.iloc[:100], dates[:100], roster)
@@ -107,6 +130,98 @@ class PrismDataTest(unittest.TestCase):
         self.assertEqual(main.floor_buy_quantity(201), 200)
         self.assertNotEqual(main.source, security_rule("MAIN_SH", "20260706", self.config).source)
 
+    def test_cached_scores_keep_native_weights_and_nonempty_group_requirement(self):
+        groups = self.config["native_contract"]["factor_groups"]
+        values = {"T": .5, "R": 0., "S": .2, "V": -.1, "C": -.2}
+        row = {factor: values[group] for group, factors in groups.items() for factor in factors}
+        bad = dict(row, F01=np.nan, F02=np.nan, F03=np.nan)
+        scored = score_features(pd.DataFrame([row, bad]), self.config)
+        self.assertAlmostEqual(scored.iloc[0].score1, 54.75)
+        self.assertAlmostEqual(scored.iloc[0].score3, 55.75)
+        self.assertAlmostEqual(scored.iloc[0].score5, 57.25)
+        self.assertEqual(scored.iloc[0].prediction_status, "OK")
+        self.assertEqual(scored.iloc[1].prediction_status, "INSUFFICIENT_FEATURES")
+        self.assertTrue(pd.isna(scored.iloc[1].score5))
+
+    def test_trading_status_keeps_latest_nonnull_value_in_each_column(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.db"
+            store = V2Store(source, data_mode="real")
+            store.migrate()
+            with closing(sqlite3.connect(source)) as conn:
+                conn.execute("INSERT INTO trading_status(code,date,source_version,is_suspended,is_risk_warning,up_limit,down_limit,source,retrieved_at) VALUES ('600000.SH','20240102','limits',0,0,11,9,'STK_LIMIT','20240102T10:00')")
+                conn.execute("INSERT INTO trading_status(code,date,source_version,is_suspended,source,retrieved_at) VALUES ('600000.SH','20240102','suspension',1,'SUSPEND','20240102T11:00')")
+                conn.commit()
+            row = store.read_trading_status("20240102", "20240102").iloc[0]
+            self.assertEqual(row.is_suspended, 1)
+            self.assertEqual(row.is_risk_warning, 0)
+            self.assertEqual(row.up_limit, 11)
+            self.assertEqual(row.down_limit, 9)
+            self.assertTrue(pd.isna(row.no_price_limit))
+
+    def test_validation_signal_purge_and_common_tail_are_calendar_based(self):
+        sessions = pd.bdate_range("2021-01-04", periods=650).strftime("%Y%m%d").tolist()
+        labels = pd.DataFrame(dict(as_of_trade_date=sessions[120:624], label_status="OK"))
+        manifest, assignments = fixed_split_manifest(labels, sessions, self.config)
+        validation = assignments.loc[assignments.split.eq("validation")]
+        self.assertEqual(manifest["status"], "OK")
+        self.assertEqual(len(assignments), 504)
+        self.assertEqual(int(validation.signal_allowed.sum()), 57)
+        self.assertEqual(manifest["replay_windows"]["validation"]["end_date"], sessions[497])
+        self.assertEqual(manifest["replay_windows"]["test"]["start_date"], sessions[498])
+        self.assertEqual(manifest["replay_windows"]["test"]["end_date"], sessions[629])
+        self.assertEqual(len(manifest["warmup_sessions"]["train"]), 120)
+
+    def test_daily_reader_reassembles_chunks_without_dropping_missing_codes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sessions = ["20240102", "20240103", "20240104"]
+            chunks = []
+            for code, values in (("600000.SH", [10., np.nan, 11.]), ("000001.SZ", [20., 21., 22.])):
+                frame = pd.DataFrame(dict(code=code, date=sessions, execution_open=values))
+                chunks.append(write_replay_chunk(root / f"{code}.parquet", frame, sessions))
+            write_json(root / "feature_manifest.json", {"sessions": sessions, "replay_chunks": chunks})
+            frames = list(load_daily_cache(root, dates=sessions[1:]))
+            self.assertEqual([date for date, _ in frames], sessions[1:])
+            self.assertEqual(frames[0][1].code.tolist(), ["000001.SZ", "600000.SH"])
+            self.assertTrue(pd.isna(frames[0][1].iloc[1].execution_open))
+            self.assertEqual(frames[1][1].iloc[1].execution_open, 11.)
+
+    def test_prepare_runs_offline_and_does_not_shorten_an_insufficient_fixed_split(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source, root = Path(directory) / "source.db", Path(directory) / "experiment"
+            store = V2Store(source, data_mode="real")
+            store.migrate()
+            dates, raw, adj, _ = self.fixture(160)
+            raw["source_version"], raw["retrieved_at"] = "v1", dates[-1]
+            raw = raw.assign(pre_close=raw.close.shift(1), pct_chg=None,
+                             volume_raw=raw.volume_shares, volume_raw_unit="shares",
+                             amount_raw=raw.amount_cny, amount_raw_unit="CNY")
+            adj["source"], adj["source_version"], adj["retrieved_at"] = "FIXTURE", "v1", dates[-1]
+            for code in ("600000.SH", "600001.SH"):
+                store.upsert_daily_raw(raw.assign(code=code))
+                store.upsert_adjustments(adj.assign(code=code))
+            with closing(sqlite3.connect(source)) as conn:
+                for exchange in ("SSE", "SZSE"):
+                    conn.executemany("INSERT INTO calendar(exchange,date,is_open,source,source_version,retrieved_at) VALUES (?,?,1,'FIXTURE','v1',?)", [(exchange, date, dates[-1]) for date in dates])
+                for code in ("600000.SH", "600001.SH"):
+                    conn.execute("INSERT INTO instrument_versions(code,instrument_type,exchange,listing_board,list_date,valid_from,source,source_version,observed_at) VALUES (?,'STOCK','SSE','MAIN_SH','19990101',?,'FIXTURE','v1',?)", (code, dates[0], dates[-1]))
+                    conn.execute("INSERT INTO sector_membership(namespace,sector_id,code,valid_from,observed_at,history_mode,source,source_version) VALUES ('SW_L1','BANK',?,'19990101',?,'RECONSTRUCTED_PIT','FIXTURE','v1')", (code, dates[-1]))
+                    conn.executemany("INSERT INTO trading_status(code,date,source_version,is_suspended,is_risk_warning,up_limit,down_limit,no_price_limit,source,retrieved_at) VALUES (?,?,'v1',0,0,20,1,0,'FIXTURE',?)", [(code, date, dates[-1]) for date in dates])
+                conn.execute("INSERT INTO sync_audits(exchange,date,source_version,expected_instruments,observed_rows,known_non_trading_rows,coverage,status,recorded_at) VALUES ('SSE',?,'v1',2,2,0,1,'COMPLETE',?)", (dates[-1], dates[-1]))
+                conn.commit()
+            config = copy.deepcopy(self.config)
+            config["resources"]["smoke_stocks"] = 2
+            before = file_sha256(source)
+            first = prepare(source, root, config)
+            self.assertEqual(first["status"], "INSUFFICIENT_HISTORY")
+            self.assertEqual(first["split_plan"]["missing_mature_dates"], 370)
+            self.assertEqual(first["smoke"]["stock_count"], 2)
+            self.assertEqual(first["smoke"]["session_count"], 160)
+            self.assertTrue((root / "common_return_bins.json").exists())
+            self.assertEqual(file_sha256(source), before)
+            self.assertEqual(prepare(source, root, config), first)
+
     def test_audit_cutoff_uses_complete_audit_not_max_raw_date(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "source.db"
@@ -115,7 +230,7 @@ class PrismDataTest(unittest.TestCase):
                 for exchange in ("SSE", "SZSE"):
                     for date in ("20260102", "20260105", "20260106"):
                         conn.execute("INSERT INTO calendar(exchange,date,is_open,source,source_version,retrieved_at) VALUES (?,?,1,'FIXTURE','v1','20260106')", (exchange, date))
-                conn.execute("INSERT INTO instrument_versions(code,instrument_type,exchange,listing_board,name,list_date,valid_from,source,source_version,observed_at) VALUES ('600000.SH','STOCK','SSE','MAIN_SH','*ST TODAY','19991110','20260102','FIXTURE','v1','20260106')")
+                conn.execute("INSERT INTO instrument_versions(code,instrument_type,exchange,listing_board,name,list_date,valid_from,source,source_version,observed_at) VALUES ('600000.SH','stock','SSE','MAIN_SH','*ST TODAY','19991110','20260102','FIXTURE','v1','20260106')")
                 for date in ("20260102", "20260105", "20260106"):
                     conn.execute("INSERT INTO daily_raw(code,date,source_version,open,high,low,close,volume_shares,amount_cny,source,retrieved_at,completeness,data_source_mode) VALUES ('600000.SH',?,'v1',10,11,9,10,10000,100000,'FIXTURE','20260106','COMPLETE','real')", (date,))
                 conn.execute("INSERT INTO sync_audits(exchange,date,source_version,expected_instruments,observed_rows,known_non_trading_rows,coverage,status,recorded_at) VALUES ('SSE','20260105','v1',1,1,0,1,'COMPLETE','20260106')")
@@ -126,6 +241,7 @@ class PrismDataTest(unittest.TestCase):
             self.assertEqual(result.audit["calendar_agreement"], "SSE_SZSE_MATCH")
             self.assertIn("RAW_PRICE_LEDGER_CORPORATE_ACTIONS_INCOMPLETE", result.audit["scope_flags"])
             self.assertNotIn("name", result.roster.columns)
+            self.assertEqual(result.roster.iloc[0].metadata_status, "AVAILABLE_LIST_DATE_HISTORY_LIMITED")
 
 
 if __name__ == "__main__":
