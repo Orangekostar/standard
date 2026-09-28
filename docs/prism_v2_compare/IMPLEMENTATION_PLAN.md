@@ -64,8 +64,9 @@ Interfaces: `load_config(path)->dict`, `market_regimes(frame,config)->DataFrame`
   q01=.04,vol ratio100 => d=.12; q01=.001 => .03; missing q01 => unavailable;
   oldstop95,high110,close100,d=.12 => stop98, never95-12; closeNaN => no cross.
 - [x] Run failing tests, implement original fixed math, then run passing tests.
-- [ ] Configuration validates forbidden network/search settings and exact split;
-  all runtime parameters have a consumer or explicit provenance-only role.
+- [x] Configuration validates forbidden network/search settings and exact split;
+  all runtime parameters have a consumer or explicit provenance-only role,
+  recorded in `PARAMETER_AUDIT.md`; unsupported modes have rejection tests.
 
 ## Task 3: Consistent Snapshot And Shared Data Cache
 
@@ -135,11 +136,11 @@ Files: all named `artifacts/prism_v2_compare/<run_id>/` outputs, `HANDOFF.md`,
 completion audit and local publish receipt; `core/pipeline/prism_compare_delivery.py`,
 `scripts/package_prism_v2.py`, `tests/v2/test_prism_delivery.py`.
 
-- [ ] Before the final SOURCE_COMMIT, close the unsupported-option and report
+- [x] Before the final SOURCE_COMMIT, close the unsupported-option and report
   input-binding checks. Insufficient history must freeze an explicitly ineligible
   protocol, never open test, and export null-valued NOT_RUN artifacts without
   changing504/120 or inventing C exposure.
-- [ ] Add manifest-whitelisted derived-result packaging and restoration. Limit
+- [x] Add manifest-whitelisted derived-result packaging and restoration. Limit
   every part to the configured maximum40MiB, verify part/archive/restored-file
   hashes, refuse raw/credential/unlisted inputs, and preserve incomplete attempts.
 
@@ -148,9 +149,11 @@ completion audit and local publish receipt; `core/pipeline/prism_compare_deliver
 - [ ] Run one related V2 regression after implementation, document actual failures
   and fixes. If a test-exposed bug is found, record TEST_EXPOSED_BUGFIX and invalidate
   all affected symmetric cells, without tuning the policy.
-  Current source verification:229 V2 tests passed in112.085s, including the new
-  stage/report fixtures. The six unsupported-option rejection cases failed before
-  the config-loader fix and now pass. No formal comparison test was opened.
+  Current source verification:236 V2 tests passed in113.988s, including the new
+  stage/report/package fixtures. Unsupported-option, audit-binding, insufficient
+  history, unlisted-share capacity and tail-denominator regressions were checked
+  before the formal comparison. No formal comparison test was opened at this
+  source-audit checkpoint; this checkbox awaits final runtime review.
 - [ ] Primary review every ZIP section, numbered test family, parameter, invariant,
   named artifact, command, figure and delivery requirement against current evidence.
 - [ ] Upload explicit code/result whitelist and derived <=40MiB packages; try Release

@@ -99,6 +99,13 @@ revalidate and record actual frozen counts. Consequences: UNIVERSE_HISTORY_LIMIT
 HISTORICAL_RISK_WARNING_UNKNOWN, RAW_PRICE_LEDGER_CORPORATE_ACTIONS_INCOMPLETE;
 no survivor-free universe or unqualified account net-PnL superiority claim.
 
+The native sync audit uses the SSE calendar key for its combined analysis
+universe, not a separate per-SZSE audit (`scripts/v2.py::_sync`). The frozen
+latest audit is20260928:5221 expected codes,5209 observed plus12 known suspended,
+coverage1.0 and all required endpoint statuses OK. All801 audit records use that
+native SSE key; both exchange open-session calendars independently match. This
+does not claim two independently populated exchange audit series.
+
 ## Shared Replay Corrections Found Before Comparison Test
 
 Historical account initialization needs a logical initial-capital event before
@@ -134,10 +141,28 @@ counting each bonus lot as a separate win. Pending rights block new risk and del
 actual-flat cooldown. These are symmetric shared corrections, not B benefits.
 They do not repair absent historical corporate-action rows in the real snapshot.
 
-The config loader rejects unsupported changes to the real-data mode, A's F0/no
-price-exit baseline, one-day buy validity, continuous test account and zero
-risk-free rate. Otherwise a declared option could silently disagree with actual
-execution. Each rejection was reproduced before adding the validation.
+The config loader rejects unsupported changes to the fixed source, real-data
+and comparison-price modes, A/B's F0/h5/five-session baseline, B's close-time
+tighten-only stop, C's four-cap validation-only scaling, shared execution/fee
+modes, exact tail/subperiods, twelve-cell bootstrap and forbidden delivery modes.
+Otherwise a declared option could silently disagree with actual execution.
+New rejection cases were reproduced before adding validation; numeric consumers
+and provenance-only fields are mapped in `PARAMETER_AUDIT.md`.
+
+Confirmed unlisted shares consume stock, sector, gross and name capacity from
+their ex-date, including when the parent lot is already closed. The minimal
+fixture previously exceeded a5% gross cap (8.9848624%) and now stays within it
+while allowing another code to use only remaining capacity. This correction is
+shared by A/B/C, not an extra B risk rule.
+
+Report generation verifies root/copy data, audit, parameters, split and protocol
+bindings before writing outputs. Insufficient fixed history produces an explicit
+ineligible protocol, unavailable C exposure and null-valued NOT_RUN artifacts;
+it never opens test or shortens504/120. Funnel denominators exclude settlement
+tail roster rows while preserving real tail fills and closed trades. Derived
+result packaging uses a manifest whitelist, at most40MiB parts and verified
+part/archive/restored-file hashes; raw market databases and credentials are
+excluded. These paths have directed fixture coverage, not main trading evidence.
 
 Development verification:54 targeted tests passed before full-market preparation.
 The first real50x160 offline smoke completed in37.169s under cProfile with peak
@@ -161,8 +186,12 @@ has57 allowed signals after its boundary exclusion. Test has126 signals from
 
 The stage CLI and report exporter have passed twelve-cell fixture, immutable
 protocol/C, successful-cell reuse, tamper detection, no-network, exact summary
-column and nonblank figure/hash checks. A fresh related V2 regression passed229
-tests in112.085s. Matplotlib/NumPy deprecation warnings and Streamlit's bare-mode
+column and nonblank figure/hash checks. The latest related V2 regression passed236
+tests in113.988s on the implementation committed as7a39ed2. Matplotlib/NumPy
+deprecation warnings and Streamlit's bare-mode
 context warning were nonfatal third-party warnings, not test failures.
-Actual main validation/freeze/test/report, complete requirement review and result
-delivery remain pending. Uploading this source branch does not complete them.
+At this pre-comparison source audit, actual main validation/freeze/test/report,
+complete requirement review and result delivery remain pending. This file is
+copied immutably to the run's `shared_fixes.md`; subsequent actual completion
+evidence belongs in `HANDOFF.md` and `COMPLETION_AUDIT.md`. Uploading source alone
+does not complete the experiment.
