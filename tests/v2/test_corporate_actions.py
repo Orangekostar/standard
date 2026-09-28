@@ -176,6 +176,17 @@ class CorporateActionTest(unittest.TestCase):
         self.assertEqual(self.portfolio.corporate_action_ledger().iloc[0].status, "SETTLED")
         self.assertEqual(sum(lot.quantity for lot in self.portfolio.lots()), 100)
 
+    def test_pending_share_receivable_keeps_known_sector_after_parent_is_closed(self):
+        parent = self.portfolio.lots()[0]
+        with self.store._write_connection() as conn:
+            conn.execute("UPDATE paper_lots SET metadata_json=? WHERE lot_id=?",
+                (canonical_json({**parent.metadata, "sector_id": "BANK"}), parent.lot_id))
+        self.sell("parent-exit", "20260923", 100)
+        apply_corporate_actions(self.store, "account-a", [self.share_event()], as_of_date="20260923")
+        mark = mark_portfolio(self.store, "account-a", "20260923", {"600000.SH": Decimal("9.09")})
+        self.assertEqual(set(mark.sector_exposure), {"BANK"})
+        self.assertAlmostEqual(mark.sector_exposure["BANK"], 9090 / mark.nav_cents)
+
 
 if __name__ == "__main__":
     unittest.main()

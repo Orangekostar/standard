@@ -33,6 +33,8 @@ def _binding(root: Path, config: dict[str, Any], identity: dict[str, Any]) -> tu
     dataset = json.loads((root / "dataset_manifest.json").read_text())
     if dataset["configuration_sha256"] != sha256_json(config):
         raise ContractError("dataset and comparison configuration differ; prepare a matching namespace")
+    if sha256_json(json.loads((root / "parameters.json").read_text())) != sha256_json(config):
+        raise ContractError("prepared parameters differ from the comparison configuration")
     for name, expected in (("feature_manifest.json", dataset["feature_manifest_sha256"]),
                            ("split.csv", dataset["split_sha256"])):
         if file_sha256(root / name) != expected:
@@ -127,6 +129,9 @@ def validate(experiment_root: str | Path, config_path: str | Path = DEFAULT_CONF
     with experiment_lock(root):
         run, dataset = _initialise(root, config)
         if dataset["status"] != "OK":
+            write_json(Path(run["artifact_dir"]) / "validation_complete.json", {
+                "status": f"NOT_RUN_{dataset['status']}", "binding": run["binding"],
+                "cell_manifests": {}, "reason": dataset["split_plan"]}, immutable=True)
             return {**run, "status": dataset["status"], "cells": [], "reason": dataset["split_plan"]}
         matrix = [(strategy, "validation", "base") for strategy in STRATEGIES[:2]]
         cells = _cells(root, config, run, matrix, 1.)
@@ -151,23 +156,31 @@ def freeze(experiment_root: str | Path, config_path: str | Path = DEFAULT_CONFIG
         validation = json.loads(validation_path.read_text())
         if validation["binding"] != run["binding"]:
             raise ContractError("validation implementation/data binding differs")
-        matrix = [(strategy, "validation", "base") for strategy in STRATEGIES[:2]]
-        for strategy, split, cost in matrix:
-            receipt = directory / strategy / split / cost / "cell_manifest.json"
-            if not receipt.exists() or file_sha256(receipt) != validation["cell_manifests"][strategy]:
-                raise ContractError("validated cell manifest SHA256 differs")
-        cells = _cells(root, config, run, matrix, 1.)
-        if not all(cell["reused"] for cell in cells):
-            raise ContractError("freeze must reuse completed validation cells")
-        control = exposure_control(cells[0]["metrics"]["average_gross_exposure"],
-                                   cells[1]["metrics"]["average_gross_exposure"], config)
+        if dataset["status"] == "OK":
+            if validation["status"] != "COMPLETE":
+                raise ContractError("eligible freeze requires completed validation")
+            matrix = [(strategy, "validation", "base") for strategy in STRATEGIES[:2]]
+            for strategy, split, cost in matrix:
+                receipt = directory / strategy / split / cost / "cell_manifest.json"
+                if not receipt.exists() or file_sha256(receipt) != validation["cell_manifests"][strategy]:
+                    raise ContractError("validated cell manifest SHA256 differs")
+            cells = _cells(root, config, run, matrix, 1.)
+            if not all(cell["reused"] for cell in cells):
+                raise ContractError("freeze must reuse completed validation cells")
+            control = exposure_control(cells[0]["metrics"]["average_gross_exposure"],
+                                       cells[1]["metrics"]["average_gross_exposure"], config)
+        else:
+            control = {"lambda_c": None, "status": "UNAVAILABLE_NO_ELIGIBLE_VALIDATION",
+                "a_validation_mean_exposure": None, "b_validation_mean_exposure": None,
+                "test_returns_used": False, "stress_refits_lambda": False}
         path = directory / "protocol_frozen.json"
         if path.exists():
             receipt = json.loads((root / "freeze_receipt.json").read_text())
             if file_sha256(path) != receipt["protocol_sha256"]:
                 raise ContractError("frozen protocol SHA256 differs")
             return path
-        frozen = {"status": "FROZEN", "run_id": run["run_id"], "artifact_dir": str(directory),
+        frozen = {"status": "FROZEN" if dataset["status"] == "OK" else "FROZEN_INELIGIBLE_HISTORY",
+            "run_id": run["run_id"], "artifact_dir": str(directory),
             "binding": run["binding"], "source_identity": identity, "parameters": config,
             "exposure_control": control, "split_plan": dataset["split_plan"],
             "scope_flags": dataset["scope_flags"], "frozen_at": datetime.now(timezone.utc).isoformat(),
@@ -196,10 +209,17 @@ def test(experiment_root: str | Path, frozen_manifest: str | Path) -> dict[str, 
             raise ContractError("frozen implementation/data/configuration binding differs; invalidate all affected cells")
         if not identity["source_tree_clean"]:
             raise ContractError("test requires committed comparison source/configuration")
-        if frozen["status"] != "FROZEN" or dataset["status"] != "OK":
-            raise ContractError("test has no eligible frozen fixed split")
         run = {key: frozen[key] for key in ("run_id", "artifact_dir", "binding", "source_identity")}
         directory = Path(run["artifact_dir"])
+        if frozen["status"] == "FROZEN_INELIGIBLE_HISTORY" and dataset["status"] != "OK":
+            complete = {"status": f"NOT_RUN_{dataset['status']}", "binding": binding,
+                "protocol_sha256": receipt["protocol_sha256"], "cell_count": 0,
+                "cell_manifests": {}, "reason": dataset["split_plan"]}
+            write_json(directory / "test_complete.json", complete, immutable=True)
+            write_json(root / "test_complete.json", complete)
+            return {**run, "status": complete["status"], "cells": []}
+        if frozen["status"] != "FROZEN" or dataset["status"] != "OK":
+            raise ContractError("test has no eligible frozen fixed split")
         opened = directory / "test_started.json"
         if not opened.exists():
             write_json(opened, {"protocol_sha256": receipt["protocol_sha256"],

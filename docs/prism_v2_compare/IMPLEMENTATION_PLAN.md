@@ -132,7 +132,16 @@ Interfaces: `validate(root,config)`, `freeze(root,config)->path`,
 ## Task 6: Real Run, Review And GitHub Delivery
 
 Files: all named `artifacts/prism_v2_compare/<run_id>/` outputs, `HANDOFF.md`,
-completion audit and local publish receipt.
+completion audit and local publish receipt; `core/pipeline/prism_compare_delivery.py`,
+`scripts/package_prism_v2.py`, `tests/v2/test_prism_delivery.py`.
+
+- [ ] Before the final SOURCE_COMMIT, close the unsupported-option and report
+  input-binding checks. Insufficient history must freeze an explicitly ineligible
+  protocol, never open test, and export null-valued NOT_RUN artifacts without
+  changing504/120 or inventing C exposure.
+- [ ] Add manifest-whitelisted derived-result packaging and restoration. Limit
+  every part to the configured maximum40MiB, verify part/archive/restored-file
+  hashes, refuse raw/credential/unlisted inputs, and preserve incomplete attempts.
 
 - [ ] Commit SOURCE_COMMIT before test; execute prepare/validate/freeze/test/report
   with the explicit interpreter and frozen paths. Keep zero/negative results.

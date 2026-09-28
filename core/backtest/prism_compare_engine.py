@@ -466,6 +466,15 @@ class _Replay:
             value = self.last_marks.get(lot.code, Decimal(0)) * lot.quantity
             values[lot.code] += value
             sectors[_text(rows.get(lot.code, {}).get("sector_id"), "UNKNOWN")] += value
+        all_lots = self.portfolio.lots()
+        for code, quantity in pending_share_quantities(all_lots, date).items():
+            value = self.last_marks.get(code, Decimal(0)) * quantity
+            sector = _text(rows.get(code, {}).get("sector_id")) or next(
+                (_text(lot.metadata.get("sector_id")) for lot in all_lots
+                 if lot.code == code and _text(lot.metadata.get("sector_id"))), "UNKNOWN")
+            values[code] += value
+            sectors[sector] += value
+            names.add(code)
         gross = sum(values.values(), Decimal(0))
         eligible = sorted((item for item in decisions if item["entry_candidate"]),
                           key=lambda item: (-(item["reference_net_edge"] if item["reference_net_edge"] is not None else -math.inf), -item["score5"], item["code"]))

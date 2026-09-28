@@ -128,6 +128,18 @@ class PrismComparisonMetricsTest(unittest.TestCase):
         self.assertAlmostEqual(rows[1]["net_return"], 1.01 ** 69 - 1., places=12)
         self.assertTrue(rows[1]["account_continuous"])
 
+    def test_gate_summary_uses_signal_dates_without_losing_tail_account_events(self):
+        from core.pipeline.prism_compare_report import _gate_summary
+        common = dict(strategy_id="A0_V2_F0", split="test", cost_scenario="base")
+        funnel = pd.DataFrame([{**common, "date": "20240102", "stage": "roster", "count": 2, "reason_scope": "cumulative_gate"},
+            {**common, "date": "20240103", "stage": "roster", "count": 3, "reason_scope": "cumulative_gate"},
+            {**common, "date": "ALL", "stage": "fill", "count": 1, "reason_scope": "actual_events"}])
+        frozen = {"split_plan": {"replay_windows": {"test": {"signal_dates": ["20240102"]}}}}
+        result = _gate_summary(funnel, frozen).set_index("stage")
+        self.assertEqual(result.loc["roster", "count"], 2)
+        self.assertEqual(result.loc["fill", "count"], 1)
+        self.assertEqual(result.loc["roster", "allowed_signal_dates"], 1)
+
 
 class PrismComparisonStageTest(unittest.TestCase):
     def setUp(self):
@@ -235,6 +247,48 @@ class PrismComparisonStageTest(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "hash|SHA256"):
             run_test(self.root, path)
 
+    def test_insufficient_history_delivers_explicit_not_run_outputs_without_shortening(self):
+        from core.pipeline.prism_compare_config import file_sha256, write_json
+        from core.pipeline.prism_comparison import freeze, report, test as run_test, validate
+        path = self.root / "dataset_manifest.json"
+        dataset = json.loads(path.read_text())
+        dataset["status"] = "INSUFFICIENT_HISTORY"
+        dataset["split_plan"] = {"status": "INSUFFICIENT_HISTORY", "reason_codes": ["INSUFFICIENT_MATURE_DATES"],
+            "mature_signal_date_count": 134, "required_mature_dates": 504, "missing_mature_dates": 370,
+            "boundaries": {}, "warmup_sessions": {}, "replay_windows": {}}
+        pd.DataFrame(columns=["signal_date", "split"]).to_csv(self.root / "split.csv", index=False)
+        dataset["split_sha256"] = file_sha256(self.root / "split.csv")
+        write_json(path, dataset)
+        validation = validate(self.root, self.config_path)
+        self.assertEqual(validation["status"], "INSUFFICIENT_HISTORY")
+        self.assertEqual(validation["cells"], [])
+        self.assertTrue((Path(validation["artifact_dir"]) / "validation_complete.json").exists())
+        frozen_path = freeze(self.root, self.config_path)
+        frozen = json.loads(Path(frozen_path).read_text())
+        self.assertEqual(frozen["status"], "FROZEN_INELIGIBLE_HISTORY")
+        self.assertIsNone(frozen["exposure_control"]["lambda_c"])
+        result = run_test(self.root, frozen_path)
+        self.assertEqual(result["status"], "NOT_RUN_INSUFFICIENT_HISTORY")
+        self.assertEqual(result["cells"], [])
+        self.assertFalse((Path(result["artifact_dir"]) / "test_started.json").exists())
+        output = report(self.root)
+        self.assertEqual(output["status"], "INSUFFICIENT_HISTORY")
+        directory = Path(output["artifact_dir"])
+        summary = pd.read_csv(directory / "comparison_summary.csv")
+        self.assertEqual(len(summary), 12)
+        self.assertTrue(summary.net_return.isna().all())
+        self.assertTrue(summary.closed_trade_count.isna().all())
+        self.assertTrue(summary.comparison_status.eq("INSUFFICIENT_HISTORY").all())
+        verdict = json.loads((directory / "verdict.json").read_text())
+        self.assertEqual(verdict["missing_mature_dates"], 370)
+        self.assertFalse(verdict["test_opened"])
+        manifest = json.loads((directory / "artifact_manifest.json").read_text())
+        for name, record in manifest["files"].items():
+            self.assertEqual(hashlib.sha256((directory / name).read_bytes()).hexdigest(), record["sha256"])
+        metrics = json.loads((directory / "A0_V2_F0/test/base/metrics.json").read_text())
+        self.assertEqual(metrics["status"], "NOT_RUN_INSUFFICIENT_HISTORY")
+        self.assertIsNone(metrics["net_return"])
+
     def test_report_exports_exact_summary_fields_real_hashes_and_three_nonblank_figures(self):
         from PIL import Image
         from core.pipeline.prism_comparison import freeze, report, test as run_test, validate
@@ -268,6 +322,12 @@ class PrismComparisonStageTest(unittest.TestCase):
                 self.assertGreater(np.asarray(picture.convert("RGB")).std(), 3.)
         self.assertEqual(len(pd.read_csv(directory / "test_subperiods.csv")), 12)
         self.assertTrue(json.loads((directory / "verdict.json").read_text())["prediction_claim"].startswith("IDENTICAL_RAW_F0"))
+        audit_path = self.root / "data_audit.json"
+        audit = json.loads(audit_path.read_text())
+        audit["as_of"] = "20990101"
+        audit_path.write_text(json.dumps(audit))
+        with self.assertRaisesRegex(ContractError, "binding|audit|SHA256"):
+            report(self.root)
 
 
 class PrismComparisonCliTest(unittest.TestCase):

@@ -310,6 +310,27 @@ class PrismReplayTest(unittest.TestCase):
         _, output = self.run_replay("exit-priority", frames, "B0_PRISM_A_SHARE_V1")
         self.assertEqual(self.read(output, "closed_trades").exit_reason.tolist(), ["FIXED_5_SESSION_EXPIRY"])
 
+    def test_unlisted_share_receivables_consume_shared_gross_budget_for_other_codes(self):
+        frames = self.frames(signals=6)
+        for index, (_, frame) in enumerate(frames):
+            other = frame.copy()
+            other.loc[0, ["code", "sector_id", "score5"]] = ["600001.SH", "ENERGY", 70. if index == 3 else 50.]
+            frame.loc[0, "score5"] = 70. if index == 0 else 40. if index == 2 else 50.
+            if index >= 2:
+                frame.loc[0, ["execution_open", "valuation_close", "close"]] = 10 / 6
+                frame.loc[0, "adj_factor"] = 6.
+                frame.loc[0, ["up_limit", "down_limit"]] = [13 / 6, 1.]
+            frames[index] = (self.sessions[index], pd.concat([frame, other], ignore_index=True))
+        config = copy.deepcopy(self.config)
+        config["shared_portfolio"]["market_gross_caps"] = [.05, .05, .05]
+        action = pd.DataFrame([dict(event_id="late-shares", code="600000.SH", record_date=self.sessions[1],
+            ex_date=self.sessions[2], list_date=self.sessions[11], share_ratio=5., status="implemented")])
+        _, output = self.run_replay("receivable-budget", frames, signals=6, config=config, actions=action)
+        fills = self.read(output, "fills")
+        self.assertEqual(fills.loc[fills.side.eq("BUY"), "code"].tolist(), ["600000.SH", "600001.SH"])
+        nav = self.read(output, "daily_nav")
+        self.assertLessEqual(nav.gross_exposure.max(), .051)
+
 
 if __name__ == "__main__":
     unittest.main()

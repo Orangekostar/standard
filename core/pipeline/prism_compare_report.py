@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from core.backtest.prism_compare_engine import CELL_FILES
+from core.backtest.prism_compare_engine import CELL_FILES, _export_csv
 from core.backtest.prism_compare_metrics import SUMMARY_COLUMNS, comparison_verdict, paired_bootstrap, test_subperiods
 from core.pipeline.prism_compare_config import REPOSITORY_ROOT, STRATEGIES, file_sha256, implementation_identity, write_json
 from core.pipeline.prism_compare_data import _verify_cache_file, experiment_lock
@@ -18,7 +18,7 @@ from core.technical_v2.contracts import ContractError
 ROOT_FILES = ("protocol_frozen.json", "dataset_manifest.json", "data_audit.json", "split.csv", "parameters.json",
     "shared_fixes.md", "baseline_identity.json", "comparison_summary.csv", "paired_bootstrap.json", "verdict.json",
     "regime_summary.csv", "sector_summary.csv", "gate_funnel.csv", "test_subperiods.csv", "RESEARCH_REPORT.md", "TEST_REPORT.md",
-    "year_quarter_summary.csv", "exit_summary.csv", "cost_summary.csv", "candidate_label_diagnostic.csv",
+    "year_quarter_summary.csv", "exit_summary.csv", "cost_summary.csv", "candidate_label_diagnostic.csv", "gate_summary.csv",
     "figures/equity.png", "figures/drawdown.png", "figures/exposure.png")
 
 
@@ -123,6 +123,18 @@ def _label_diagnostic(root: Path, config: dict[str, Any]) -> pd.DataFrame:
     return pd.DataFrame(result)
 
 
+def _gate_summary(funnel: pd.DataFrame, frozen: dict) -> pd.DataFrame:
+    pieces = []
+    for (strategy, split, cost), group in funnel.groupby(["strategy_id", "split", "cost_scenario"], sort=True):
+        signals = frozen["split_plan"]["replay_windows"][split]["signal_dates"]
+        selected = group.loc[group.date.astype(str).isin(signals) | group.reason_scope.eq("actual_events")]
+        counts = selected.groupby(["reason_scope", "stage"], sort=True, as_index=False)["count"].sum()
+        counts["strategy_id"], counts["split"], counts["cost_scenario"] = strategy, split, cost
+        counts["allowed_signal_dates"] = len(signals)
+        pieces.append(counts)
+    return pd.concat(pieces, ignore_index=True)
+
+
 def _figures(directory, tables, config, frozen):
     try:
         import matplotlib
@@ -144,6 +156,13 @@ def _figures(directory, tables, config, frozen):
         for r, split in enumerate(config["evaluation"]["splits"]):
             for column, cost in enumerate(config["evaluation"]["cost_cases"]):
                 ax = axes[r, column]
+                if tables is None:
+                    missing = frozen["split_plan"]["missing_mature_dates"]
+                    ax.text(.5, .5, f"NOT RUN: INSUFFICIENT HISTORY\nMissing mature signal dates: {missing}",
+                            ha="center", va="center", transform=ax.transAxes)
+                    ax.set_title(f"{split.title()} / {cost} / No eligible fixed split", fontsize=10)
+                    ax.set_ylabel(title)
+                    continue
                 for index, strategy in enumerate(STRATEGIES):
                     nav = tables[strategy, split, cost]["daily_nav"]
                     x = pd.to_datetime(nav.date, format="%Y%m%d")
@@ -168,6 +187,8 @@ def _figures(directory, tables, config, frozen):
 
 def _number(value, percent=False):
     numeric = _safe_number(value)
+    if numeric == 0:
+        numeric = 0.
     return "null" if numeric is None else f"{numeric:.2%}" if percent else f"{numeric:.4f}"
 
 
@@ -194,6 +215,33 @@ def _reports(directory, root, full, frozen, verdict):
         "Each replay contains its full common settlement tail; the two test blocks share one continuous account."])
     for split, window in frozen["split_plan"]["replay_windows"].items():
         lines.append(f"- {split}: {window['start_date']} - {window['end_date']}; {len(window['signal_dates'])} allowed signals.")
+    gates = pd.read_csv(directory / "gate_summary.csv")
+    gates = gates.loc[gates.split.eq("test") & gates.cost_scenario.eq("base")]
+    lines.extend(["", "## Observed Account And Gate Results", ""])
+    if selected.filled_buy_count.eq(0).all():
+        lines.extend(["All three test accounts remained in cash: no fills, fully closed trades, fees or modeled slippage.",
+            "Zero drawdown and equal NAV do not establish improved forecasting or better risk management.",
+            "There is no realized P&L to attribute to market states, entry sectors or exit reasons."])
+    if audit.get("known_risk_warning_rows") == 0:
+        lines.append("The frozen snapshot has no known historical risk-warning flags. The shared BLOCK_NEW_ENTRIES policy therefore prevents new risk; it was not relaxed to manufacture trades.")
+    lines.extend(["", "Funnel denominators use allowed signal-date roster rows; actual fills/closed trades include the common settlement tail.",
+        "| Strategy | Roster Rows | Factor Valid | 65/55 | Not Extended | Return Estimate | Net Edge | Eligibility | Allocated | Orders | Fills | Closed |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"])
+    for strategy in STRATEGIES:
+        group = gates.loc[gates.strategy_id.eq(strategy)]
+        counts = {row.stage: int(row.count) for row in group.loc[group.reason_scope.eq("cumulative_gate") | group.reason_scope.eq("actual_events")].itertuples()}
+        stages = ("roster", "factors", "score65_55", "not_extended", "return_estimate", "net_edge", "trade_eligibility", "quantity", "order", "fill", "closed")
+        lines.append(f"| {strategy} | " + " | ".join(str(counts.get(stage, 0)) for stage in stages) + " |")
+    lines.extend(["", "All-blocker occurrences are non-exclusive and include all signal-date roster rows, not only rejected entry candidates.",
+        "| Strategy | Main Blocker | Occurrences |", "| --- | --- | ---: |"])
+    for strategy in STRATEGIES:
+        blockers = gates.loc[gates.strategy_id.eq(strategy) & gates.reason_scope.eq("all_blockers")].sort_values("count", ascending=False).head(3)
+        for row in blockers.itertuples():
+            lines.append(f"| {strategy} | {row.stage} | {int(row.count)} |")
+    diagnostics = pd.read_csv(directory / "candidate_label_diagnostic.csv")
+    for row in diagnostics.loc[diagnostics.split.eq("test")].itertuples():
+        lines.extend(["", f"Fixed test-signal adjusted-label diagnosis: count={row.candidate_label_count}, mean={_number(row.mean_adjusted_label, True)}, median={_number(row.p50, True)}, p95={_number(row.p95, True)}.",
+            "These are adjusted five-session signal labels, not account net returns, evidence of B prediction improvement or permission to change the frozen gates."])
     lines.extend(["", "## Interpretation And Attribution", "",
         "A keeps original F0/score/expiry behavior. B adds only market-state quantity scaling, adaptive close-stop management and actual-flat cooldown.",
         "All groups share the same original fifteen factors, three horizon scores, train return bins, legal-unit rules, fills, fees and NAV accounting.",
@@ -229,7 +277,62 @@ def _reports(directory, root, full, frozen, verdict):
     (directory / "TEST_REPORT.md").write_text("\n".join(test_lines))
 
 
+def _ineligible_report(root, directory, frozen, dataset, seal):
+    status, reason = dataset["status"], dataset["split_plan"]
+    not_run = f"NOT_RUN_{status}"
+    matrix = [(strategy, split, cost) for strategy in STRATEGIES for split in frozen["parameters"]["evaluation"]["splits"]
+              for cost in frozen["parameters"]["evaluation"]["cost_cases"]]
+    rows, names = [], list(ROOT_FILES)
+    for strategy, split, cost in matrix:
+        row = {key: None for key in SUMMARY_COLUMNS}
+        row.update(strategy_id=strategy, split=split, cost_scenario=cost,
+                   data_scope_status="|".join(frozen["scope_flags"]), comparison_status=status)
+        rows.append(row)
+        cell = directory / strategy / split / cost
+        cell.mkdir(parents=True, exist_ok=True)
+        for name in ("daily_nav.csv.gz", "decisions.csv.gz", "orders.csv.gz", "fills.csv.gz",
+                     "closed_trades.csv.gz", "remaining_positions.csv"):
+            _export_csv(cell / name, pd.DataFrame([{"status": not_run, "reason": json.dumps(reason, sort_keys=True)}]))
+            names.append(f"{strategy}/{split}/{cost}/{name}")
+        write_json(cell / "metrics.json", {**row, "status": not_run, "reason": reason})
+        write_json(cell / "runtime.json", {"status": not_run, "reason": reason, "api_calls": 0,
+                   "elapsed_seconds": None, "peak_process_rss_bytes": None})
+        names.extend(f"{strategy}/{split}/{cost}/{name}" for name in ("metrics.json", "runtime.json"))
+    pd.DataFrame(rows, columns=SUMMARY_COLUMNS).to_csv(directory / "comparison_summary.csv", index=False)
+    write_json(directory / "verdict.json", {"verdict": status, "test_opened": False, "scope_limited": True,
+               "missing_mature_dates": reason["missing_mature_dates"], "reason": reason})
+    write_json(directory / "paired_bootstrap.json", {"status": not_run, "reason": reason,
+               "point_b_minus_a": None, "ci95_b_minus_a": None})
+    for name in ("regime_summary", "sector_summary", "gate_funnel", "gate_summary", "test_subperiods", "year_quarter_summary",
+                 "exit_summary", "cost_summary", "candidate_label_diagnostic"):
+        pd.DataFrame([{"status": not_run, "reason": json.dumps(reason, sort_keys=True)}]).to_csv(directory / f"{name}.csv", index=False)
+    _figures(directory, None, frozen["parameters"], frozen)
+    lines = ["# Prism / V2 Fixed Historical Comparison", "",
+        "| Strategy | Test Net Return | Closed Trades |", "| --- | ---: | ---: |",
+        *[f"| {strategy} | null | null |" for strategy in STRATEGIES], "",
+        f"Verdict: `{status}`. The fixed comparison was not run and test was not opened.", "",
+        f"SOURCE_COMMIT: `{frozen['source_identity']['source_commit']}`.",
+        f"Available mature signal dates: {reason['mature_signal_date_count']}; required: {reason['required_mature_dates']}; missing: {reason['missing_mature_dates']}.",
+        "No dates, warmup, account results or validation exposure were invented. C's lambda is unavailable, not zero or one.",
+        "Prepared real-data scope and coverage are retained in `data_audit.json` and `dataset_manifest.json`.",
+        "Any available offline smoke is diagnostic only, not a shortened main experiment.", "", "```json",
+        json.dumps(reason, indent=2), "```", ""]
+    (directory / "RESEARCH_REPORT.md").write_text("\n".join(lines))
+    (directory / "TEST_REPORT.md").write_text(f"# Test Evidence\n\nHistorical matrix: `{not_run}`. Zero actual comparison cells were executed.\n")
+    if dataset.get("smoke"):
+        write_json(directory / "smoke_diagnostic.json", dataset["smoke"])
+        names.append("smoke_diagnostic.json")
+    names.extend(name for name in ("run_identity.json", "validation_complete.json", "test_complete.json") if (directory / name).exists())
+    write_json(directory / "artifact_manifest.json", {"status": status, "source_commit": frozen["source_identity"]["source_commit"],
+        "protocol_sha256": seal["protocol_sha256"], "cell_count": 0, "api_calls": 0, "raw_vendor_database_included": False,
+        "self_hash_excluded": True, "reason": reason,
+        "files": {name: {"bytes": (directory / name).stat().st_size, "sha256": file_sha256(directory / name)} for name in names}})
+    return {"status": status, "artifact_dir": str(directory), "run_id": frozen["run_id"], "verdict": status}
+
+
 def report(experiment_root: str | Path) -> dict[str, Any]:
+    from core.pipeline.prism_comparison import _binding
+
     root = Path(experiment_root).resolve()
     with experiment_lock(root):
         if not (root / "test_complete.json").exists() or not (root / "freeze_receipt.json").exists():
@@ -240,9 +343,17 @@ def report(experiment_root: str | Path) -> dict[str, Any]:
             raise ContractError("report frozen protocol SHA256 differs")
         frozen = json.loads(path.read_text())
         config, directory = frozen["parameters"], Path(frozen["artifact_dir"])
-        if implementation_identity()["implementation_hash"] != frozen["binding"]["implementation_hash"]:
-            raise ContractError("report implementation differs from the frozen source")
+        binding, dataset = _binding(root, config, implementation_identity())
+        if binding != frozen["binding"] or binding != seal["binding"]:
+            raise ContractError("report implementation/data/configuration binding differs from the frozen source")
         complete = json.loads((root / "test_complete.json").read_text())
+        if complete["binding"] != binding or complete["protocol_sha256"] != seal["protocol_sha256"]:
+            raise ContractError("report test binding/protocol SHA256 differs")
+        for name in ("dataset_manifest.json", "data_audit.json", "split.csv", "parameters.json"):
+            if file_sha256(directory / name) != file_sha256(root / name):
+                raise ContractError(f"report immutable input SHA256 differs: {name}")
+        if frozen["status"] == "FROZEN_INELIGIBLE_HISTORY" and complete["status"] == f"NOT_RUN_{dataset['status']}":
+            return _ineligible_report(root, directory, frozen, dataset, seal)
         if complete["status"] != "COMPLETE" or complete["binding"] != frozen["binding"]:
             raise ContractError("report test binding/status differs")
         matrix = [(strategy, split, cost) for strategy in STRATEGIES for split in config["evaluation"]["splits"]
@@ -264,6 +375,7 @@ def report(experiment_root: str | Path) -> dict[str, Any]:
         write_json(directory / "verdict.json", verdict)
         halves.to_csv(directory / "test_subperiods.csv", index=False)
         funnel.to_csv(directory / "gate_funnel.csv", index=False)
+        _gate_summary(funnel, frozen).to_csv(directory / "gate_summary.csv", index=False)
         for name, rows in _attribution(tables).items():
             pd.DataFrame(rows).to_csv(directory / f"{name}.csv", index=False)
         full[["strategy_id", "split", "cost_scenario", "net_return", "fees_total", "modeled_slippage_total",

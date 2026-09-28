@@ -79,7 +79,19 @@ class PrismPolicyTest(unittest.TestCase):
                  ("strategies.A0_V2_F0", "price_triggered_exit", True),
                  ("evaluation", "risk_free_rate", .02),
                  ("split", "test_account_continues_across_reporting_blocks", False),
-                 ("data", "mode", "demo"))
+                 ("data", "mode", "demo"),
+                 ("strategies.B0_PRISM_A_SHARE_V1", "formula", "F1_TREND"),
+                 ("strategies.B0_PRISM_A_SHARE_V1.adaptive_stop", "tighten_only", False),
+                 ("strategies.C0_V2_EXPOSURE_CONTROL", "scaled_limits", []),
+                 ("strategies.C0_V2_EXPOSURE_CONTROL", "refit_lambda_in_test", True),
+                 ("strategies.A0_V2_F0", "primary_horizon", 3),
+                 ("costs", "slippage_accounting", "terminal_subtraction"),
+                 ("evaluation", "bootstrap_method", "independent_trades"),
+                 ("split", "account_reset_between_validation_and_test", False),
+                 ("delivery", "upload_raw_vendor_db", True),
+                 ("strategies.B0_PRISM_A_SHARE_V1", "max_planned_holding_sessions", 8),
+                 ("split", "final_tail_sessions", 3),
+                 ("split", "test_reporting_blocks", [60, 66]))
         with tempfile.TemporaryDirectory() as directory:
             for group, field, value in cases:
                 with self.subTest(group=group, field=field):
