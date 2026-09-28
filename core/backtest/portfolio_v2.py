@@ -68,6 +68,7 @@ class PortfolioMark:
     position_value_cents: int
     unresolved_codes: tuple[str, ...]
     sector_exposure: dict[str, float]
+    receivable_cents: int = 0
 
 
 class PaperPortfolio:
@@ -406,7 +407,15 @@ def mark_portfolio(
     unresolved_actions = (
         not action_ledger.empty and action_ledger["status"].astype(str).eq("UNRESOLVED").any()
     )
-    known_value = cash + position_value
+    receivable_cents = 0
+    if not action_ledger.empty:
+        pending = action_ledger.loc[action_ledger["status"].eq("PENDING")]
+        for row in pending.to_dict(orient="records"):
+            confirmed = row.get("receivable_cash_cents")
+            received = row.get("received_cash_cents")
+            if pd.notna(confirmed):
+                receivable_cents += max(0, int(confirmed) - (int(received) if pd.notna(received) else 0))
+    known_value = cash + position_value + receivable_cents
     if unresolved_codes:
         status = "NAV_UNRESOLVED_VALUATION"
         nav = None
@@ -431,4 +440,5 @@ def mark_portfolio(
         position_value_cents=position_value,
         unresolved_codes=tuple(unresolved_codes),
         sector_exposure=exposure,
+        receivable_cents=receivable_cents,
     )

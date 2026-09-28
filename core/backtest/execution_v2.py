@@ -87,6 +87,26 @@ class SecurityRule:
     effective_from: str
     effective_to: str | None
     source: str
+    minimum_quantity: int | None = None
+    quantity_increment: int | None = None
+    maximum_quantity: int | None = None
+
+    def floor_buy_quantity(self, requested: float) -> int:
+        if not math.isfinite(float(requested)):
+            return 0
+        minimum = self.minimum_quantity or self.lot_size
+        increment = self.quantity_increment or self.lot_size
+        capped = min(float(requested), self.maximum_quantity or math.inf)
+        if capped < minimum:
+            return 0
+        return minimum + math.floor((capped - minimum) / increment) * increment
+
+    def floor_sell_quantity(self, requested: int, available: int) -> int:
+        if available <= 0 or requested <= 0:
+            return 0
+        if requested >= available and (self.maximum_quantity is None or available <= self.maximum_quantity):
+            return available
+        return self.floor_buy_quantity(min(requested, available))
 
     def applies(self, trade_date: str) -> bool:
         value = _date(trade_date)
@@ -95,6 +115,9 @@ class SecurityRule:
         return (
             self.lot_size > 0
             and self.tick_size > 0
+            and (self.minimum_quantity is None or self.minimum_quantity > 0)
+            and (self.quantity_increment is None or self.quantity_increment > 0)
+            and (self.maximum_quantity is None or self.maximum_quantity >= (self.minimum_quantity or self.lot_size))
             and bool(self.source)
             and bool(start)
             and start <= value
@@ -128,6 +151,7 @@ class PaperOrder:
     planned_stop_price: Decimal | None = None
     sector_id: str | None = None
     reason_codes: tuple[str, ...] = ()
+    lot_quantities: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -320,6 +344,13 @@ def _cash_balance(conn: Any, account_id: str) -> int:
 
 
 def _persist_order(conn: Any, order: PaperOrder) -> str:
+    if order.lot_quantities and (
+        order.side != "SELL"
+        or len(dict(order.lot_quantities)) != len(order.lot_quantities)
+        or any(quantity <= 0 for _, quantity in order.lot_quantities)
+        or sum(quantity for _, quantity in order.lot_quantities) != order.quantity
+    ):
+        raise ContractError("sell lot quantities must be unique, positive and sum to the order quantity")
     if order.side not in {"BUY", "SELL"} or order.quantity <= 0:
         raise ContractError("paper order side/quantity is invalid")
     existing = conn.execute("SELECT * FROM paper_orders WHERE order_id = ?", (order.order_id,)).fetchone()
@@ -353,7 +384,7 @@ def _persist_order(conn: Any, order: PaperOrder) -> str:
         _date(order.planned_exit_date) or None,
         str(order.planned_stop_price) if order.planned_stop_price is not None else None,
         order.sector_id,
-        canonical_json({}),
+        canonical_json({"lot_quantities": order.lot_quantities} if order.lot_quantities else {}),
     )
     recorded = conn.execute(
         """
@@ -408,19 +439,24 @@ def _affordable_buy(
     fill_price: Decimal,
     cash_cents: int,
     fee_schedule: FeeSchedule,
+    rule: SecurityRule | None = None,
 ) -> tuple[int, int, int, dict[str, int]]:
-    high = max(0, requested_quantity // lot_size)
+    minimum = (rule.minimum_quantity or rule.lot_size) if rule else lot_size
+    increment = (rule.quantity_increment or rule.lot_size) if rule else lot_size
+    requested_quantity = rule.floor_buy_quantity(requested_quantity) if rule else requested_quantity
+    high = max(0, 1 + (requested_quantity - minimum) // increment) if requested_quantity >= minimum else 0
     low = 0
     while low < high:
         midpoint = (low + high + 1) // 2
-        notional = fill_price * midpoint * lot_size
+        candidate_quantity = minimum + (midpoint - 1) * increment
+        notional = fill_price * candidate_quantity
         notional_cents = _money_cents(notional)
         fee_cents, _ = fee_schedule.fees(notional, "BUY")
         if notional_cents + fee_cents <= cash_cents:
             low = midpoint
         else:
             high = midpoint - 1
-    quantity = low * lot_size
+    quantity = minimum + (low - 1) * increment if low else 0
     notional = fill_price * quantity
     notional_cents = _money_cents(notional)
     fee_cents, components = fee_schedule.fees(notional, "BUY")
@@ -433,6 +469,8 @@ def _execute_one(
     market: MarketOpen | None,
     fee_schedule: FeeSchedule,
     rule: SecurityRule | None,
+    *,
+    block_buy: bool = False,
 ) -> FillResult:
     with store._write_connection() as conn:
         existing_status = _persist_order(conn, order)
@@ -448,6 +486,9 @@ def _execute_one(
             )
         if existing_status.startswith("EXPIRED") or existing_status in {"RULE_METADATA_MISSING", "REJECTED"}:
             return _terminal_result(order, existing_status)
+        if order.side == "BUY" and block_buy:
+            _set_order_status(conn, order.order_id, "EXPIRED_PENDING_EXIT", ("SAME_SESSION_EXIT_PRIORITY",))
+            return _terminal_result(order, "EXPIRED_PENDING_EXIT", "SAME_SESSION_EXIT_PRIORITY")
         if market is None:
             status = "PENDING_EXIT_NO_OPEN" if order.side == "SELL" else "EXPIRED_NO_OPEN"
             _set_order_status(conn, order.order_id, status, ("RAW_OPEN_UNAVAILABLE",))
@@ -456,9 +497,13 @@ def _execute_one(
         if trade_date < _date(order.earliest_trade_date):
             _set_order_status(conn, order.order_id, "PENDING", ("BEFORE_EARLIEST_TRADE_DATE",))
             return _terminal_result(order, "PENDING", "BEFORE_EARLIEST_TRADE_DATE")
+        if order.side == "BUY" and trade_date > _date(order.earliest_trade_date):
+            _set_order_status(conn, order.order_id, "EXPIRED_VALIDITY", ("NEXT_SESSION_BUY_EXPIRED",))
+            return _terminal_result(order, "EXPIRED_VALIDITY", "NEXT_SESSION_BUY_EXPIRED")
         if rule is None or not rule.applies(trade_date):
-            _set_order_status(conn, order.order_id, "RULE_METADATA_MISSING", ("SECURITY_RULE_MISSING",))
-            return _terminal_result(order, "RULE_METADATA_MISSING", "SECURITY_RULE_MISSING")
+            status = "PENDING_EXIT_RULE_UNKNOWN" if order.side == "SELL" else "RULE_METADATA_MISSING"
+            _set_order_status(conn, order.order_id, status, ("SECURITY_RULE_MISSING",))
+            return _terminal_result(order, status, "SECURITY_RULE_MISSING")
         if not fee_schedule.applies(trade_date):
             _set_order_status(conn, order.order_id, "FEE_SCHEDULE_MISSING", ("FEE_SCHEDULE_MISSING",))
             return _terminal_result(order, "FEE_SCHEDULE_MISSING", "FEE_SCHEDULE_MISSING")
@@ -486,6 +531,13 @@ def _execute_one(
                 return _terminal_result(order, "PENDING_EXIT_LIMIT_DOWN", "OPEN_AT_DOWN_LIMIT")
         multiplier = Decimal(1) + fee_schedule.slippage_each_side * (1 if order.side == "BUY" else -1)
         fill_price = _round_to_tick(open_price * multiplier, rule.tick_size, buy=order.side == "BUY")
+        if market.no_price_limit is not True and (
+            (order.side == "BUY" and fill_price > up_limit)
+            or (order.side == "SELL" and fill_price < down_limit)
+        ):
+            status = "PENDING_EXIT_SLIPPED_LIMIT" if order.side == "SELL" else "EXPIRED_SLIPPED_LIMIT"
+            _set_order_status(conn, order.order_id, status, ("SLIPPED_PRICE_OUTSIDE_LIMIT",))
+            return _terminal_result(order, status, "SLIPPED_PRICE_OUTSIDE_LIMIT")
         if order.side == "BUY" and order.price_ceiling_floor is not None and fill_price > order.price_ceiling_floor:
             _set_order_status(conn, order.order_id, "EXPIRED_PRICE_CEILING", ("PRICE_CEILING_EXCEEDED",))
             return _terminal_result(order, "EXPIRED_PRICE_CEILING", "PRICE_CEILING_EXCEEDED")
@@ -499,6 +551,7 @@ def _execute_one(
                 fill_price,
                 cash,
                 fee_schedule,
+                rule,
             )
             if quantity <= 0:
                 _set_order_status(conn, order.order_id, "EXPIRED_INSUFFICIENT_CASH", ("INSUFFICIENT_CASH",))
@@ -520,11 +573,19 @@ def _execute_one(
                 """,
                 (order.account_id, order.code),
             ).fetchall()
-            available = sum(int(lot["sellable_quantity"]) for lot in lots)
+            code_available = sum(int(lot["sellable_quantity"]) for lot in lots)
+            lot_caps = dict(order.lot_quantities)
+            if lot_caps:
+                lots = [lot for lot in lots if str(lot["lot_id"]) in lot_caps]
+            available = sum(min(int(lot["sellable_quantity"]), lot_caps.get(str(lot["lot_id"]), int(lot["sellable_quantity"]))) for lot in lots)
             quantity = min(quantity, available)
             if quantity <= 0:
                 _set_order_status(conn, order.order_id, "PENDING_EXIT_T1", ("NO_SELLABLE_QUANTITY",))
                 return _terminal_result(order, "PENDING_EXIT_T1", "NO_SELLABLE_QUANTITY")
+            quantity = rule.floor_sell_quantity(quantity, code_available)
+            if quantity <= 0:
+                _set_order_status(conn, order.order_id, "PENDING_EXIT_QUANTITY", ("ILLEGAL_PARTIAL_EXIT_QUANTITY",))
+                return _terminal_result(order, "PENDING_EXIT_QUANTITY", "ILLEGAL_PARTIAL_EXIT_QUANTITY")
             notional = fill_price * quantity
             notional_cents = _money_cents(notional)
             fee_cents, components = fee_schedule.fees(notional, "SELL")
@@ -610,7 +671,7 @@ def _execute_one(
                 if remaining <= 0:
                     break
                 current_quantity = int(lot["quantity"])
-                consume = min(remaining, int(lot["sellable_quantity"]))
+                consume = min(remaining, int(lot["sellable_quantity"]), lot_caps.get(str(lot["lot_id"]), int(lot["sellable_quantity"])))
                 if consume <= 0:
                     continue
                 if consume == remaining or index == len(lots) - 1:
@@ -670,8 +731,12 @@ def execute_open_orders(
     security_rules: Mapping[str, SecurityRule],
 ) -> ExecutionBatchResult:
     ordered = sorted(orders, key=lambda item: (0 if item.side == "SELL" else 1, item.code, item.order_id))
+    exiting = {(item.account_id, item.code) for item in ordered if item.side == "SELL"}
     results = [
-        _execute_one(store, order, open_market.get(order.code), fee_schedule, security_rules.get(order.code))
+        _execute_one(
+            store, order, open_market.get(order.code), fee_schedule, security_rules.get(order.code),
+            block_buy=order.side == "BUY" and (order.account_id, order.code) in exiting,
+        )
         for order in ordered
     ]
     return ExecutionBatchResult(tuple(results))
