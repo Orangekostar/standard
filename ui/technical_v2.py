@@ -271,6 +271,13 @@ def render_technical_v2(
         "</div>",
         unsafe_allow_html=True,
     )
+    if "universe_history_mode" in snapshot.features.columns:
+        current = snapshot.features.loc[
+            snapshot.features["universe_history_mode"].eq("CURRENT_SNAPSHOT_ONLY")
+        ]
+        if not current.empty:
+            observed_at = current["universe_observed_at"].dropna().max()
+            st.caption(f"股票名册：当前快照 · 采集时间 {observed_at}")
     routes = meta.get("routes") if isinstance(meta.get("routes"), dict) else {}
     formula_route = routes.get("formula") if isinstance(routes.get("formula"), dict) else {}
     jev_route = routes.get("jev") if isinstance(routes.get("jev"), dict) else {}
@@ -314,12 +321,15 @@ def render_technical_v2(
     with tabs[1]:
         sector_options = sorted(stock_h5["sector_key"].astype(str).unique())
         if sector_options:
-            selected_sector = st.selectbox("行业", sector_options, index=0)
+            selected_sector = st.selectbox("行业", ["全部行业", *sector_options], index=0)
         else:
             selected_sector = ""
             st.info("暂无可用行业数据")
         query = st.text_input("股票代码或名称", value="").strip().lower()
-        sector_rows = stock_h5.loc[stock_h5["sector_key"].eq(selected_sector)].copy()
+        sector_rows = (
+            stock_h5.copy() if selected_sector == "全部行业"
+            else stock_h5.loc[stock_h5["sector_key"].eq(selected_sector)].copy()
+        )
         if query:
             names = sector_rows.get("name", pd.Series("", index=sector_rows.index)).fillna("").astype(str)
             mask = sector_rows["entity_id"].astype(str).str.lower().str.contains(query, regex=False)
@@ -334,6 +344,9 @@ def render_technical_v2(
             (
                 "entity_id",
                 "name",
+                "close",
+                "open",
+                "amount_cny",
                 "method",
                 "prediction_status",
                 "forecast_class",
@@ -351,7 +364,7 @@ def render_technical_v2(
         st.dataframe(stock_view, hide_index=True, width="stretch")
         with st.expander("1/3 日诊断"):
             diagnostics = stock_rows.loc[
-                stock_rows["sector_key"].eq(selected_sector)
+                stock_rows["entity_id"].isin(sector_rows["entity_id"])
                 & pd.to_numeric(stock_rows["horizon"], errors="coerce").isin((1, 3))
             ]
             st.dataframe(
@@ -420,19 +433,20 @@ def render_technical_v2(
             st.dataframe(snapshot.evaluations[evaluation_name], hide_index=True, width="stretch")
         else:
             st.info("EVALUATION_NOT_AVAILABLE")
-        exported = build_snapshot_export(snapshot.rows)
         download_columns = st.columns(2)
         download_columns[0].download_button(
             "下载完整 CSV",
-            data=exported.csv_text,
+            data=lambda: build_snapshot_export(snapshot.rows).csv_text,
             file_name=f"technical-v2-{meta.get('run_id', 'snapshot')}.csv",
             mime="text/csv",
             width="stretch",
+            on_click="ignore",
         )
         download_columns[1].download_button(
             "下载完整 JSON",
-            data=exported.json_text,
+            data=lambda: build_snapshot_export(snapshot.rows).json_text,
             file_name=f"technical-v2-{meta.get('run_id', 'snapshot')}.json",
             mime="application/json",
             width="stretch",
+            on_click="ignore",
         )

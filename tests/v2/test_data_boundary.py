@@ -53,6 +53,46 @@ class _MembershipTransport:
         )
 
 
+class _DirtyMembershipTransport:
+    """Mix a documented Tushare dirty symbol with valid membership rows."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, str]] = []
+
+    def index_member_all(self, **kwargs):
+        self.calls.append(dict(kwargs))
+        rows = [
+            {
+                "l1_code": kwargs["l1_code"],
+                "l1_name": "Transportation",
+                "ts_code": "600018.SH",
+                "in_date": "20200101",
+                "out_date": None,
+                "is_new": kwargs["is_new"],
+            },
+            {
+                "l1_code": kwargs["l1_code"],
+                "l1_name": "Transportation",
+                "ts_code": "T00018.SH",
+                "in_date": "20000601",
+                "out_date": "20060531",
+                "is_new": kwargs["is_new"],
+            },
+        ]
+        if kwargs["is_new"] == "N":
+            rows = [
+                {
+                    "l1_code": kwargs["l1_code"],
+                    "l1_name": "Transportation",
+                    "ts_code": "601919.SH",
+                    "in_date": "20100101",
+                    "out_date": "20201231",
+                    "is_new": "N",
+                }
+            ]
+        return pd.DataFrame(rows)
+
+
 class _MetadataTransport:
     def stock_basic(self, **kwargs):
         return pd.DataFrame(
@@ -213,6 +253,27 @@ class V2ProviderBoundaryTest(unittest.TestCase):
         self.assertEqual([call["is_new"] for call in transport.calls], ["Y", "N"])
         self.assertEqual(set(result.frame["history_mode"]), {"RECONSTRUCTED_PIT"})
         self.assertEqual(set(result.frame["sector_id"]), {"801010.SI"})
+        self.assertEqual(result.details.get("invalid_members"), [])
+
+    def test_sector_membership_quarantines_invalid_provider_symbols_as_partial(self) -> None:
+        transport = _DirtyMembershipTransport()
+
+        result = RealV2Provider(token="configured", transport=transport).sector_memberships(["801170.SI"])
+
+        self.assertEqual(result.status, "PARTIAL")
+        self.assertEqual(set(result.frame["code"]), {"600018.SH", "601919.SH"})
+        self.assertNotIn("T00018.SH", set(result.frame["code"]))
+        self.assertEqual(
+            result.details["invalid_members"],
+            [
+                {
+                    "l1_code": "801170.SI",
+                    "is_new": "Y",
+                    "ts_code": "T00018.SH",
+                    "reason": "INVALID_PROVIDER_SYMBOL",
+                }
+            ],
+        )
 
     def test_sector_classification_uses_frozen_sw2021_level_one_arguments(self) -> None:
         transport = _MembershipTransport()

@@ -12,6 +12,7 @@ Each run binds `generated_at`, `as_of_trade_date`, `information_cutoff`, `data_s
 ## Universe and temporal joins
 
 - The dated analysis universe includes SH/SZ A shares on the main, ChiNext, and STAR boards. B shares, funds, indices, bonds, and BSE securities are excluded.
+- When the latest complete session is current but no dated roster exists (for example, first setup during a holiday), the live analysis may use an already observed current roster. Its rows are marked `universe_history_mode=CURRENT_SNAPSHOT_ONLY` with `universe_observed_at`, and the information cutoff includes that observation time. Stored roster validity is unchanged; stale and historical analysis cannot use this fallback.
 - Risk warnings, suspensions, insufficient history, and account restrictions remain as status rows. `trade_eligible` is separate from analysis membership.
 - SW L1 membership uses `valid_from`/`valid_to`; reconstructed history is `RECONSTRUCTED_PIT`. The `stock_basic.industry` fallback is `CURRENT_SNAPSHOT_ONLY` and is never backfilled before `observed_at`.
 - A stock may belong to multiple concept namespaces, but concept membership never replaces the primary industry and never duplicates a portfolio position.

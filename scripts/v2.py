@@ -129,9 +129,15 @@ def _market_data_hash(store: V2Store, as_of: str) -> str:
         "corporate_actions",
         "sync_audits",
     )
-    payload: dict[str, list[dict[str, Any]]] = {}
+    # Stream the same canonical JSON bytes without materializing the market database.
+    digest = hashlib.sha256()
+    digest.update(b"{")
     with closing(store._connect()) as conn:
-        for table in tables:
+        conn.execute("BEGIN")
+        for table_index, table in enumerate(sorted(tables)):
+            if table_index:
+                digest.update(b",")
+            digest.update(json.dumps(table).encode("utf-8") + b":[")
             columns = [str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})")]
             date_column = "date" if "date" in columns else None
             query = f"SELECT * FROM {table}"
@@ -141,9 +147,20 @@ def _market_data_hash(store: V2Store, as_of: str) -> str:
                 params = (str(as_of),)
             if columns:
                 query += " ORDER BY " + ",".join(columns)
-            rows = conn.execute(query, params).fetchall()
-            payload[table] = [dict(row) for row in rows]
-    return sha256_json(payload)
+            cursor = conn.execute(query, params)
+            first = True
+            while rows := cursor.fetchmany(512):
+                if not first:
+                    digest.update(b",")
+                encoded = json.dumps(
+                    [dict(row) for row in rows], ensure_ascii=False, sort_keys=True,
+                    separators=(",", ":"), allow_nan=False,
+                )
+                digest.update(encoded[1:-1].encode("utf-8"))
+                first = False
+            digest.update(b"]")
+    digest.update(b"}")
+    return digest.hexdigest()
 
 
 def _code_hash() -> str:
@@ -1311,15 +1328,17 @@ def _normalize_prediction_rows(
         str(row["entity_id"]): row for row in sector_features.to_dict(orient="records")
     }
     earliest_entry = _session_offset(store, as_of, 1)
+    reference_exits = {
+        horizon: _session_offset(store, earliest_entry, horizon) if earliest_entry else None
+        for horizon in (1, 3, 5)
+    }
     normalized: list[dict[str, Any]] = []
     for raw in rows.to_dict(orient="records"):
         entity_type = str(raw["entity_type"])
         entity_id = str(raw["entity_id"])
         horizon = int(raw["horizon"])
         feature = stock_lookup.get(entity_id, {}) if entity_type == "stock" else sector_lookup.get(entity_id, {})
-        reference_exit = (
-            _session_offset(store, earliest_entry, horizon) if earliest_entry is not None else None
-        )
+        reference_exit = reference_exits[horizon]
         factor_ids = DIRECTIONAL_FACTOR_IDS if entity_type == "stock" else tuple(
             f"z{index}" for index in range(1, 6)
         )
@@ -1377,6 +1396,8 @@ def _normalize_prediction_rows(
                 "target_definition_version": TARGET_DEFINITION_VERSION,
                 "data_source_mode": data_source_mode,
                 "sector_history_mode": _clean_value(feature.get("sector_history_mode")),
+                "universe_history_mode": _clean_value(feature.get("universe_history_mode")),
+                "universe_observed_at": _clean_value(feature.get("universe_observed_at")),
                 "feature_coverage": feature_coverage,
                 "prediction_status": str(raw["prediction_status"]),
                 "missing_reason_codes": missing_reasons,
@@ -1458,7 +1479,7 @@ def _feature_store_rows(
                     "value": value,
                     "status": "OK" if value is not None else "UNAVAILABLE",
                     "reason_code": _clean_value(feature.get(f"{factor_id}_reason")),
-                    "metadata": {"price_basis": feature.get("price_basis")},
+                    "metadata": {"price_basis": _clean_value(feature.get("price_basis"))},
                 }
             )
     for feature in sector_features.to_dict(orient="records"):
@@ -1474,7 +1495,7 @@ def _feature_store_rows(
                     "value": value,
                     "status": "OK" if value is not None else "UNAVAILABLE",
                     "reason_code": None if value is not None else "SECTOR_CONTEXT_UNAVAILABLE",
-                    "metadata": {"namespace": feature.get("namespace")},
+                    "metadata": {"namespace": _clean_value(feature.get("namespace"))},
                 }
             )
     return rows
@@ -1504,6 +1525,23 @@ def _analyze(args: argparse.Namespace) -> CommandOutcome:
             2,
         )
     instruments = store.read_instrument_versions(as_of)
+    universe_history_mode = "DATED_SNAPSHOT"
+    universe_observed_at = None
+    if (
+        instruments.empty
+        and as_of == freshness.get("actual_as_of") == freshness.get("expected_as_of")
+        and freshness.get("freshness_status") == "CURRENT"
+    ):
+        # A holiday's current roster can describe the latest market view, but
+        # must never become a backdated PIT universe for historical evaluation.
+        resolved_at = pd.Timestamp(freshness["resolved_at"])
+        current_roster = store.read_instrument_versions(resolved_at.strftime("%Y%m%d"))
+        if not current_roster.empty:
+            observed = pd.to_datetime(current_roster["observed_at"], utc=True, errors="coerce")
+            instruments = current_roster.loc[observed.le(resolved_at)].copy()
+            if not instruments.empty:
+                universe_history_mode = "CURRENT_SNAPSHOT_ONLY"
+                universe_observed_at = observed.loc[instruments.index].max().isoformat()
     if instruments.empty:
         return CommandOutcome(
             {
@@ -1515,13 +1553,35 @@ def _analyze(args: argparse.Namespace) -> CommandOutcome:
             2,
         )
     universe = build_analysis_universe(instruments, as_of).rename(columns={"ts_code": "code"})
+    universe["universe_history_mode"] = universe_history_mode
+    universe["universe_observed_at"] = universe_observed_at
     methods = tuple(value.strip() for value in str(args.methods).split(",") if value.strip())
     if not methods:
         raise ContractError("at least one analysis method is required")
     unknown = sorted(set(methods).difference({"formula", "jev"}))
     if unknown:
         raise ContractError(f"unsupported methods: {', '.join(unknown)}")
-    features, sector_features = _compute_feature_snapshots(store, universe, as_of)
+    data_hash = _market_data_hash(store, as_of)
+    config_hash = _config_hash()
+    code_hash = _code_hash()
+    run_id = "run-" + sha256_json(
+        {
+            "as_of": as_of,
+            "mode": args.mode,
+            "data_hash": data_hash,
+            "config_hash": config_hash,
+            "code_hash": code_hash,
+        }
+    )[:20]
+    feature_path = artifact_root / run_id / "features" / "latest.json"
+    if feature_path.is_file():
+        saved = json.loads(feature_path.read_text(encoding="utf-8"))
+        if saved.get("run_id") != run_id or saved.get("as_of_trade_date") != as_of:
+            raise ArtifactMismatch("cached features do not match analysis binding")
+        features = pd.DataFrame(saved["stock_rows"])
+        sector_features = pd.DataFrame(saved["sector_rows"])
+    else:
+        features, sector_features = _compute_feature_snapshots(store, universe, as_of)
     if features.empty:
         return CommandOutcome(
             {
@@ -1594,19 +1654,11 @@ def _analyze(args: argparse.Namespace) -> CommandOutcome:
             as_of=as_of,
             status="NOT_REQUESTED",
         )
-    data_hash = _market_data_hash(store, as_of)
-    config_hash = _config_hash()
-    code_hash = _code_hash()
-    run_id = "run-" + sha256_json(
-        {
-            "as_of": as_of,
-            "mode": args.mode,
-            "data_hash": data_hash,
-            "config_hash": config_hash,
-            "code_hash": code_hash,
-        }
-    )[:20]
     information_cutoff = f"{as_of[:4]}-{as_of[4:6]}-{as_of[6:]}T20:10:00+08:00"
+    if universe_observed_at:
+        information_cutoff = max(
+            pd.Timestamp(information_cutoff), pd.Timestamp(universe_observed_at)
+        ).isoformat()
     combined = pd.concat([formula, jev], ignore_index=True, sort=False)
     normalized = _normalize_prediction_rows(
         combined,
@@ -1757,6 +1809,8 @@ def _analyze(args: argparse.Namespace) -> CommandOutcome:
         "feature_rows": len(features),
         "sector_feature_rows": len(sector_features),
         "coverage_rows": result.coverage_rows,
+        "universe_history_mode": universe_history_mode,
+        "universe_observed_at": universe_observed_at,
         **freshness,
     }
     return CommandOutcome(payload, 2 if external_failure else 0)
@@ -1893,7 +1947,21 @@ def _evaluate_matured(args: argparse.Namespace) -> CommandOutcome:
         )
     store = V2Store(db_path, data_mode=args.mode)
     with command_lock(artifact_root / ".command.lock"):
-        label_rows = materialize_labels(store)
+        latest_session = store.latest_complete_session("SSE", "99991231")
+        needs_labels = False
+        for row in store.read_prediction_rows().to_dict(orient="records"):
+            if str(row["prediction_status"]) != "OK":
+                continue
+            try:
+                payload = json.loads(row["payload_json"])
+            except (TypeError, json.JSONDecodeError) as exc:
+                raise ContractError(f"invalid persisted prediction payload: {row['run_id']}") from exc
+            reference_exit = payload.get("reference_exit_date")
+            # Older predictions without maturity metadata still use the full evaluation path.
+            if not reference_exit or not latest_session or str(reference_exit) <= latest_session:
+                needs_labels = True
+                break
+        label_rows = materialize_labels(store) if needs_labels else 0
         result = evaluate_matured_predictions(store)
     return CommandOutcome(
         {

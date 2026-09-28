@@ -21,6 +21,30 @@ from ui.technical_v2 import (
 
 
 class TechnicalV2UiContractTest(unittest.TestCase):
+    def test_opening_page_does_not_build_full_download_exports(self) -> None:
+        from streamlit.testing.v1 import AppTest
+
+        from ui.technical_v2 import build_snapshot_export
+
+        def page():
+            import pandas as pd
+
+            from ui.technical_v2 import TechnicalV2Snapshot, render_technical_v2
+
+            snapshot = TechnicalV2Snapshot(
+                "READY", {"run_id": "test", "data_source_mode": "real"},
+                pd.DataFrame([{
+                    "entity_type": "stock", "entity_id": "600000.SH",
+                    "method": "formula", "horizon": 5, "prediction_status": "OK",
+                }]), pd.DataFrame(),
+            )
+            render_technical_v2(snapshot, lambda: None)
+
+        with patch("ui.technical_v2.build_snapshot_export", wraps=build_snapshot_export) as export:
+            app = AppTest.from_function(page).run()
+            self.assertEqual(len(app.exception), 0)
+            self.assertEqual(export.call_count, 0, "opening the page eagerly serialized all download data")
+
     def test_ratio_formats_once_and_formula_score_is_not_probability(self) -> None:
         self.assertEqual(format_ratio(0.012), "1.20%")
         row = build_display_row({"formula_score": 78, "p_cal_up": 0.61})

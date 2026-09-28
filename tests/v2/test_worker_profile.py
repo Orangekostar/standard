@@ -7,7 +7,12 @@ from unittest import mock
 
 import pandas as pd
 
-from core.background.precompute_worker import PrecomputeWorker, _build_arg_parser
+from core.background.precompute_worker import (
+    PrecomputeWorker,
+    WorkerSingletonBusy,
+    _build_arg_parser,
+    acquire_technical_v2_worker_lock,
+)
 from core.background.task_rules import dependency_snapshot_matches
 from core.background.technical_v2_tasks import (
     TECHNICAL_V2_DEPENDENCIES,
@@ -29,6 +34,32 @@ class TechnicalV2WorkerProfileTest(unittest.TestCase):
             worker.task_specs["evaluate_matured_v2"].dependencies,
             ("formula_v2",),
         )
+
+
+    def test_technical_v2_worker_singleton_lock_rejects_second_instance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            lock_path = Path(tmp_dir) / "technical_v2_worker.lock"
+            first = PrecomputeWorker(profile="technical_v2", max_concurrency=1)
+            first.acquire_singleton_lock(lock_path)
+            try:
+                second = PrecomputeWorker(profile="technical_v2", max_concurrency=1)
+                with self.assertRaises(WorkerSingletonBusy):
+                    second.acquire_singleton_lock(lock_path)
+                legacy = PrecomputeWorker(profile="legacy", max_concurrency=1)
+                legacy.acquire_singleton_lock(lock_path)
+            finally:
+                handle = first._singleton_lock_handle
+                if handle is not None:
+                    handle.close()
+
+    def test_acquire_technical_v2_worker_lock_writes_pid(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            lock_path = Path(tmp_dir) / "technical_v2_worker.lock"
+            handle = acquire_technical_v2_worker_lock(lock_path)
+            try:
+                self.assertEqual(int(lock_path.read_text().strip()), __import__("os").getpid())
+            finally:
+                handle.close()
 
     def test_cli_parser_accepts_technical_v2_profile(self) -> None:
         args = _build_arg_parser().parse_args(["--profile", "technical_v2", "--once"])

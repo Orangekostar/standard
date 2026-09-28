@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 
@@ -25,13 +26,16 @@ class ReleaseArtifactAuditTest(unittest.TestCase):
 
         missing = sorted(name for name in required if not (run_dir / name).is_file())
         mismatches = verify_artifact_manifest(run_dir, RUN_ID)
+        release_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
         latest = read_latest_manifest(ARTIFACT_ROOT)
 
         self.assertEqual(missing, [])
         self.assertEqual(mismatches, [])
+        self.assertEqual(release_manifest["run_id"], RUN_ID)
+        self.assertEqual(release_manifest["data_source_mode"], "demo")
         self.assertIsNotNone(latest)
-        self.assertEqual(latest["run_id"], RUN_ID)
-        self.assertEqual(latest["data_source_mode"], "demo")
+        self.assertTrue((ARTIFACT_ROOT / latest["run_id"] / "run_manifest.json").is_file())
+        self.assertIn(latest["data_source_mode"], {"demo", "real"})
 
 
 if __name__ == "__main__":

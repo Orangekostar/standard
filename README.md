@@ -52,10 +52,27 @@ cp .env.example .env
 # 编辑 .env，填入 TUSHARE_TOKEN
 ```
 
-3. 运行 Technical V2 UI
+3. 一键启动前后台（推荐）
 
 ```bash
-streamlit run app_v2.py
+./start_technical_v2.sh
+```
+
+默认打开 http://127.0.0.1:8511 。也可用 `./start_technical_v2.sh stop|status|restart`。
+
+启动脚本优先使用用户级 systemd 托管前后台，异常退出后自动重启；日志位于
+`cache/runtime/logs/`。没有用户级 systemd 时使用独立会话运行。
+V2 各阶段共享 SQLite 和发布锁，启动脚本默认串行执行，避免并发读写导致锁超时。
+通过反向代理或远程预览域名访问时，将 `TECHNICAL_V2_BROWSER_ADDRESS` 设为浏览器
+使用的主机名，并确认代理转发 `/_stcore/stream` 的 WebSocket 连接。
+
+默认读取真实行情发布结果，后台发布后页面自动更新。完整 CSV/JSON 在点击下载时生成。
+`TYPESAFE_API_KEY` 缺失仅影响 Jev 路线，不影响真实行情与公式路线。
+
+手动仅启动 UI：
+
+```bash
+streamlit run app_v2.py --server.port 8511
 ```
 
 原型入口仍保留为 `streamlit run app.py`，其结果标记为 legacy，不作为 V2 研究证据。

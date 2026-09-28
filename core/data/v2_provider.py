@@ -21,6 +21,13 @@ class ProviderResult:
     details: dict[str, Any] = field(default_factory=dict)
 
 
+def _safe_normalize_member_code(value: object) -> str | None:
+    try:
+        return normalize_ts_code(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
 def normalize_daily_frame(
     frame: pd.DataFrame,
     *,
@@ -248,6 +255,7 @@ class RealV2Provider:
         return result
 
     def sector_memberships(self, l1_codes: list[str]) -> ProviderResult:
+        invalid_members: list[dict[str, str]] = []
         api = self._api()
         if api is None:
             return self._unavailable()
@@ -269,7 +277,22 @@ class RealV2Provider:
                 work = raw.copy()
                 work["namespace"] = "SW_L1"
                 work["sector_id"] = _optional_series(work, "l1_code", l1_code).fillna(l1_code).astype(str)
-                work["code"] = work["ts_code"].astype(str).map(normalize_ts_code)
+                raw_codes = work["ts_code"].astype(str)
+                work["code"] = raw_codes.map(_safe_normalize_member_code)
+                invalid_mask = work["code"].isna()
+                if invalid_mask.any():
+                    for bad_code in sorted(raw_codes.loc[invalid_mask].unique()):
+                        invalid_members.append(
+                            {
+                                "l1_code": str(l1_code),
+                                "is_new": str(is_new),
+                                "ts_code": str(bad_code),
+                                "reason": "INVALID_PROVIDER_SYMBOL",
+                            }
+                        )
+                    work = work.loc[~invalid_mask].copy()
+                if work.empty:
+                    continue
                 work["valid_from"] = _optional_series(work, "in_date", "").fillna("").astype(str)
                 work["valid_to"] = _optional_series(work, "out_date")
                 work["observed_at"] = observed_at
@@ -280,7 +303,14 @@ class RealV2Provider:
         if not frames:
             code = "PROVIDER_ERROR" if failures else "EMPTY_RESPONSE"
             status = "ERROR" if failures else "NO_DATA"
-            return ProviderResult(status, pd.DataFrame(), "real", code, "index_member_all returned no usable rows", {"failures": failures})
+            return ProviderResult(
+                status,
+                pd.DataFrame(),
+                "real",
+                code,
+                "index_member_all returned no usable rows",
+                {"failures": failures, "limit_hits": limit_hits, "invalid_members": invalid_members},
+            )
         columns = [
             "namespace",
             "sector_id",
@@ -294,14 +324,14 @@ class RealV2Provider:
         ]
         combined = pd.concat(frames, ignore_index=True, sort=False)[columns]
         combined = combined.drop_duplicates(["namespace", "sector_id", "code", "valid_from", "source_version"], keep="last")
-        partial = bool(failures or limit_hits)
+        partial = bool(failures or limit_hits or invalid_members)
         return ProviderResult(
             "PARTIAL" if partial else "OK",
             combined.reset_index(drop=True),
             "real",
             "TRUNCATION_OR_FETCH_FAILURE" if partial else "",
             "one or more membership partitions were incomplete" if partial else "",
-            {"failures": failures, "limit_hits": limit_hits},
+            {"failures": failures, "limit_hits": limit_hits, "invalid_members": invalid_members},
         )
 
     def sector_classifications(self) -> ProviderResult:

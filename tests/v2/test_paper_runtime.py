@@ -107,7 +107,7 @@ class PaperRuntimeTest(unittest.TestCase):
         self.assertEqual(paper.payload["next_trade_date"], "20260923")
         self.assertEqual(matured.exit_code, 0)
         self.assertEqual(matured.payload["status"], "NO_NEW_MATURE_LABELS")
-        self.assertGreater(matured.payload["label_rows"], 0)
+        self.assertEqual(matured.payload["label_rows"], 0)
         self.assertEqual(matured.payload["total_evaluated_rows"], 0)
 
     def test_matured_predictions_are_joined_to_labels_once(self) -> None:

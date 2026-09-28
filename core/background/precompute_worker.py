@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import multiprocessing as mp
 import os
+import sys
 import time
 import traceback
 from dataclasses import dataclass, field
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -66,6 +69,38 @@ SCHEDULED_REFRESH_TASKS: tuple[str, ...] = (
 SCHEDULED_REFRESH_HOURS: tuple[int, ...] = (9, 16, 20)
 SCHEDULED_REFRESH_SLOTS: tuple[tuple[int, int], ...] = ((9, 0), (16, 0), (20, 0))
 TECHNICAL_V2_SCHEDULE_SLOTS: tuple[tuple[int, int], ...] = ((9, 0), (16, 10), (20, 10))
+
+
+class WorkerSingletonBusy(RuntimeError):
+    """Raised when another Technical V2 worker already holds the singleton lock."""
+
+
+def technical_v2_worker_lock_path(lock_path: Path | None = None) -> Path:
+    if lock_path is not None:
+        return Path(lock_path)
+    from config import settings
+
+    return Path(settings.cache_dir) / "v2" / "technical_v2_worker.lock"
+
+
+def acquire_technical_v2_worker_lock(lock_path: Path | None = None):
+    """Non-blocking flock; caller must retain the returned handle for process lifetime."""
+    path = technical_v2_worker_lock_path(lock_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a+", encoding="utf-8")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        handle.close()
+        raise WorkerSingletonBusy(
+            f"TECHNICAL_V2_WORKER_ALREADY_RUNNING: another worker holds {path}"
+        ) from exc
+    handle.seek(0)
+    handle.truncate()
+    handle.write(f"{os.getpid()}\n")
+    handle.flush()
+    return handle
+
 
 
 @dataclass
@@ -156,6 +191,14 @@ class PrecomputeWorker:
         self.active_tasks: dict[str, ActiveTask] = {}
         self._task_progress_state: dict[str, dict[str, Any]] = {}
         self.task_specs = self._build_task_specs()
+        self._singleton_lock_handle = None
+
+    def acquire_singleton_lock(self, lock_path: Path | None = None) -> None:
+        if self.profile != "technical_v2":
+            return
+        if self._singleton_lock_handle is not None:
+            return
+        self._singleton_lock_handle = acquire_technical_v2_worker_lock(lock_path)
 
     def _build_task_specs(self) -> dict[str, TaskSpec]:
         if self.profile == "technical_v2":
@@ -1534,6 +1577,11 @@ def main() -> None:
         max_concurrency=int(args.max_concurrency),
         profile=str(args.profile),
     )
+    try:
+        worker.acquire_singleton_lock()
+    except WorkerSingletonBusy as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(2) from exc
     if args.once:
         worker.run_once(wait_until_idle=True)
         return
