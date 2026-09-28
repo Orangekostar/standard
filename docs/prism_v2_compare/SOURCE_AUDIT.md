@@ -124,9 +124,45 @@ This differs from the unmodified native reference's reference-price reservation
 and is not a Prism benefit. The status reader's native last-non-null-column
 contract is unchanged; pandas `GroupBy.last` replaces slow Python aggregation.
 
+Corporate-share entitlements now use record-date quantity history, including
+parents sold before processing or listing. Confirmed unlisted shares are valued
+from their ex-date and retained as receivables; listing transfers their value to
+individual zero-cost child lots without a NAV jump. Children inherit their
+parent's expiry and comparison-price stop/high references. Fully closed economic
+trades aggregate parent/bonus descendants and confirmed dividends, rather than
+counting each bonus lot as a separate win. Pending rights block new risk and delay
+actual-flat cooldown. These are symmetric shared corrections, not B benefits.
+They do not repair absent historical corporate-action rows in the real snapshot.
+
+The config loader rejects unsupported changes to the real-data mode, A's F0/no
+price-exit baseline, one-day buy validity, continuous test account and zero
+risk-free rate. Otherwise a declared option could silently disagree with actual
+execution. Each rejection was reproduced before adding the validation.
+
 Development verification:54 targeted tests passed before full-market preparation.
 The first real50x160 offline smoke completed in37.169s under cProfile with peak
 process RSS1385656320 bytes and0 API calls. Its preliminary failed attempt was an
 adapter case mismatch, not absent market data. The profile identified15.732s in
 status aggregation; later equivalent optimization is covered independently.
 Main comparison test has not been opened. These are not TEST_EXPOSED_BUGFIXes.
+
+## Completed Preparation And Current Verification
+
+Frozen snapshot SHA256:
+`2e2598e9e115d3110f3031a710d1997e74ee374c51db73a4cef99939054ff820`.
+The completed preparation contains5349 codes,801 actual exchange sessions and775
+mature h5 signal dates; no fixed split was shortened. Full54-chunk features took
+1811.501s with peak process RSS3484811264 bytes and0 API calls. The refreshed
+50x160 offline smoke took9.124s; neither smoke is a main historical comparison.
+Train fitting used1245043 rows across246 purged signal dates, with latest label
+end20250903 strictly before calibration20250904. Validation begins20251210 and
+has57 allowed signals after its boundary exclusion. Test has126 signals from
+20260319 through20260917 and a common settlement tail through20260928.
+
+The stage CLI and report exporter have passed twelve-cell fixture, immutable
+protocol/C, successful-cell reuse, tamper detection, no-network, exact summary
+column and nonblank figure/hash checks. A fresh related V2 regression passed229
+tests in112.085s. Matplotlib/NumPy deprecation warnings and Streamlit's bare-mode
+context warning were nonfatal third-party warnings, not test failures.
+Actual main validation/freeze/test/report, complete requirement review and result
+delivery remain pending. Uploading this source branch does not complete them.

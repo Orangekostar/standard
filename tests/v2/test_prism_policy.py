@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import unittest
+import copy
+import tempfile
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from core.pipeline.prism_compare_config import load_config, reference_cost
+from core.pipeline.prism_compare_config import load_config, reference_cost, write_json
+from core.technical_v2.contracts import ContractError
 from core.strategies.prism_a_share import adaptive_distance, entry_allowed, market_regimes, update_stop
 
 
@@ -69,6 +72,26 @@ class PrismPolicyTest(unittest.TestCase):
         self.assertAlmostEqual(reference_cost(self.config, "stress"), .00512)
         self.config["costs"]["slippage_cases"]["stress"] = .003
         self.assertAlmostEqual(reference_cost(self.config, "stress"), .00712)
+
+    def test_unimplemented_switches_and_non_f0_baselines_cannot_be_silently_accepted(self):
+        cases = (("shared_portfolio", "one_day_new_buy_validity", False),
+                 ("strategies.A0_V2_F0", "formula", "F1_TREND"),
+                 ("strategies.A0_V2_F0", "price_triggered_exit", True),
+                 ("evaluation", "risk_free_rate", .02),
+                 ("split", "test_account_continues_across_reporting_blocks", False),
+                 ("data", "mode", "demo"))
+        with tempfile.TemporaryDirectory() as directory:
+            for group, field, value in cases:
+                with self.subTest(group=group, field=field):
+                    changed = copy.deepcopy(self.config)
+                    section = changed
+                    for part in group.split("."):
+                        section = section[part]
+                    section[field] = value
+                    path = Path(directory) / "changed.json"
+                    write_json(path, changed)
+                    with self.assertRaises(ContractError):
+                        load_config(path)
 
 
 if __name__ == "__main__":

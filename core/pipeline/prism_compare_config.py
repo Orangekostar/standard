@@ -36,6 +36,16 @@ def load_config(path: str | Path = DEFAULT_CONFIG) -> dict[str, Any]:
         raise ContractError("configuration must preserve the original F0/intent/label/return-bin contract")
     if config["split"]["counts"] != FIXED_SPLIT_COUNTS or config["data"]["warmup_sessions"] != WARMUP_SESSIONS:
         raise ContractError("fixed split or warmup does not match the V2 contract")
+    required_options = (
+        (config["data"], {"mode": "real"}),
+        (config["split"], {"test_account_continues_across_reporting_blocks": True}),
+        (config["evaluation"], {"risk_free_rate": 0}),
+        (config["shared_portfolio"], {"one_day_new_buy_validity": True}),
+        (config["strategies"][STRATEGIES[0]], {"formula": "F0_BALANCED", "price_triggered_exit": False}),
+    )
+    for section, required in required_options:
+        if any(section.get(key) != value for key, value in required.items()):
+            raise ContractError("configuration requests options outside the implemented fixed comparison contract")
     if any(config["network"][key] for key in ("paid_calls", "jev_in_primary_comparison", "auto_full_market_resync")):
         raise ContractError("comparison does not permit network inference or market resynchronization")
     if config["evaluation"]["threshold_search_trials"] != 0:

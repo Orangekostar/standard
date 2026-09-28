@@ -644,6 +644,10 @@ def _execute_one(
                 "planned_stop_price": str(order.planned_stop_price) if order.planned_stop_price is not None else None,
                 "sector_id": order.sector_id,
                 "realized_pnl_cents": 0,
+                "entry_quantity": quantity,
+                "entry_cost_cents": notional_cents + fee_cents,
+                "quantity_events": [{"date": trade_date, "quantity_delta": quantity}],
+                "quantity_history_complete": True,
             }
             lot_id = hashlib.sha256(f"lot|{order.order_id}".encode()).hexdigest()
             conn.execute(
@@ -689,6 +693,7 @@ def _execute_one(
                 new_quantity = current_quantity - consume
                 new_cost = int(lot["cost_cents"]) - cost_alloc
                 metadata = json.loads(lot["metadata_json"] or "{}")
+                metadata.setdefault("quantity_events", []).append({"date": trade_date, "quantity_delta": -consume})
                 metadata["realized_pnl_cents"] = int(metadata.get("realized_pnl_cents", 0)) + (
                     gross_alloc - fee_alloc - cost_alloc
                 )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping, Sequence
+from collections import defaultdict
 from dataclasses import dataclass
 from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
@@ -69,6 +70,7 @@ class PortfolioMark:
     unresolved_codes: tuple[str, ...]
     sector_exposure: dict[str, float]
     receivable_cents: int = 0
+    share_receivable_cents: int = 0
 
 
 class PaperPortfolio:
@@ -120,20 +122,26 @@ class PaperPortfolio:
         return result
 
     def closed_trades(self) -> pd.DataFrame:
-        rows = []
+        rows, groups = [], defaultdict(list)
         for lot in self.lots():
-            if lot.status == "CLOSED":
-                rows.append(
-                    {
-                        "lot_id": lot.lot_id,
-                        "code": lot.code,
-                        "status": lot.status,
-                        "entry_date": lot.entry_date,
-                        "closed_at": lot.metadata.get("closed_at"),
-                        "realized_pnl_cents": int(lot.metadata.get("realized_pnl_cents", 0)),
-                    }
-                )
-        return pd.DataFrame(rows)
+            groups[str(lot.metadata.get("economic_lot_id") or lot.lot_id)].append(lot)
+        for root_id, members in groups.items():
+            if any(lot.status != "CLOSED" for lot in members) or pending_share_quantities(members):
+                continue
+            root = next((lot for lot in members if lot.lot_id == root_id), members[0])
+            last = max(members, key=lambda lot: (str(lot.metadata.get("closed_at") or ""), lot.lot_id))
+            dividends = sum(int(ent.get("cash_cents", 0)) for lot in members
+                            for ent in lot.metadata.get("corporate_action_entitlements", {}).values())
+            rows.append({"lot_id": root_id, "code": root.code, "status": "CLOSED",
+                "entry_date": root.entry_date, "closed_at": last.metadata.get("closed_at"),
+                "realized_pnl_cents": sum(int(lot.metadata.get("realized_pnl_cents", 0)) for lot in members) + dividends,
+                "entry_quantity": root.metadata.get("entry_quantity"), "entry_cost_cents": root.metadata.get("entry_cost_cents"),
+                "sector_id": root.metadata.get("entry_sector_id", root.metadata.get("sector_id")),
+                "entry_regime": root.metadata.get("entry_regime"), "exit_reason": last.metadata.get("exit_reason"),
+                "confirmed_cash_dividend_cents": dividends, "member_lot_ids": tuple(lot.lot_id for lot in members)})
+        return pd.DataFrame(rows, columns=["lot_id", "code", "status", "entry_date", "closed_at",
+            "realized_pnl_cents", "entry_quantity", "entry_cost_cents", "sector_id", "entry_regime",
+            "exit_reason", "confirmed_cash_dividend_cents", "member_lot_ids"])
 
     def corporate_action_ledger(self) -> pd.DataFrame:
         return self.store.read_paper_corporate_action_ledger(self.account_id)
@@ -172,6 +180,33 @@ def _event_id(event: Mapping[str, Any]) -> str:
         }
     )
     return hashlib.sha256(identity.encode()).hexdigest()
+
+
+def pending_share_quantities(lots: Sequence[PaperLot], as_of_date: str | None = None) -> dict[str, int]:
+    quantities: dict[str, int] = defaultdict(int)
+    for lot in lots:
+        for entitlement in lot.metadata.get("corporate_action_entitlements", {}).values():
+            if not entitlement["shares_listed"] and (as_of_date is None or _date(as_of_date) >= entitlement["ex_date"]):
+                quantities[lot.code] += int(entitlement["share_quantity"])
+    return {code: quantity for code, quantity in quantities.items() if quantity > 0}
+
+
+def _record_quantity(lot: Any, record_date: str) -> int | None:
+    metadata = json.loads(lot["metadata_json"] or "{}")
+    if metadata.get("quantity_history_complete"):
+        return sum(int(event["quantity_delta"]) for event in metadata["quantity_events"] if event["date"] <= record_date)
+    if int(metadata.get("realized_pnl_cents", 0)) != 0 or lot["status"] == "CLOSED":
+        return None
+    return int(lot["quantity"])
+
+
+def _allocate_entitlement(total: int, quantities: list[int]) -> list[int]:
+    denominator = sum(quantities)
+    amounts = [total * quantity // denominator for quantity in quantities]
+    priority = sorted(range(len(quantities)), key=lambda index: (-(total * quantities[index] % denominator), index))
+    for index in priority[:total - sum(amounts)]:
+        amounts[index] += 1
+    return amounts
 
 
 def apply_corporate_actions(
@@ -215,16 +250,22 @@ def apply_corporate_actions(
             if existing is not None and str(existing["status"]) == "SETTLED":
                 statuses.append({"event_id": event_id, "status": "ALREADY_SETTLED"})
                 continue
+            if existing is not None and str(existing["status"]) == "UNRESOLVED":
+                unresolved += 1
+                statuses.append({"event_id": event_id, "status": "UNRESOLVED"})
+                continue
             lots = conn.execute(
                 """
                 SELECT * FROM paper_lots WHERE account_id = ? AND code = ?
-                  AND entry_date <= ? AND quantity > 0
+                  AND entry_date <= ?
                 ORDER BY entry_date, lot_id
                 """,
                 (str(account_id), code, record_date),
             ).fetchall()
-            eligible_quantity = sum(int(lot["quantity"]) for lot in lots)
-            if missing_contract and record_date <= cutoff and eligible_quantity > 0:
+            quantities = [_record_quantity(lot, record_date) for lot in lots]
+            uncertain_history = existing is None and any(quantity is None for quantity in quantities)
+            eligible_quantity = sum(quantity or 0 for quantity in quantities)
+            if (missing_contract or uncertain_history) and record_date <= cutoff and (eligible_quantity > 0 or uncertain_history):
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO paper_corporate_action_ledger(
@@ -236,7 +277,8 @@ def apply_corporate_actions(
                     (ledger_id, str(account_id), event_id, code, record_date),
                 )
                 unresolved += 1
-                statuses.append({"event_id": event_id, "status": "UNRESOLVED"})
+                statuses.append({"event_id": event_id, "status": "UNRESOLVED",
+                                 "reason": "LEGACY_LOT_ENTITLEMENT_HISTORY_UNKNOWN" if uncertain_history else "ACTION_CONTRACT_INCOMPLETE"})
                 continue
             if record_date > cutoff or (eligible_quantity <= 0 and existing is None):
                 statuses.append({"event_id": event_id, "status": "NOT_APPLICABLE"})
@@ -280,6 +322,19 @@ def apply_corporate_actions(
                 existing = conn.execute(
                     "SELECT * FROM paper_corporate_action_ledger WHERE ledger_id = ?", (ledger_id,)
                 ).fetchone()
+                shares = _allocate_entitlement(int(quantity_delta or 0), [quantity or 0 for quantity in quantities])
+                cash = _allocate_entitlement(int(receivable or 0), [quantity or 0 for quantity in quantities])
+                for lot, quantity, cash_amount, share_amount in zip(lots, quantities, cash, shares):
+                    if not quantity:
+                        continue
+                    metadata = json.loads(lot["metadata_json"] or "{}")
+                    metadata.setdefault("corporate_action_entitlements", {})[event_id] = {
+                        "record_quantity": quantity, "cash_cents": cash_amount, "share_quantity": share_amount,
+                        "ex_date": _date(event.get("ex_date")) or list_date or pay_date or record_date,
+                        "list_date": list_date, "shares_listed": not share_component or share_amount == 0,
+                    }
+                    conn.execute("UPDATE paper_lots SET metadata_json=? WHERE lot_id=?",
+                                 (canonical_json(metadata), lot["lot_id"]))
             else:
                 quantity_delta = int(existing["quantity_delta"]) if existing["quantity_delta"] is not None else None
                 adjustment_factor = (
@@ -317,49 +372,45 @@ def apply_corporate_actions(
                     (int(receivable), ledger_id),
                 )
                 received = receivable
-            corporate_lot_id = hashlib.sha256(f"corp-lot|{account_id}|{event_id}".encode()).hexdigest()
-            corporate_lot = conn.execute(
-                "SELECT 1 FROM paper_lots WHERE lot_id = ?", (corporate_lot_id,)
-            ).fetchone()
-            if share_component and list_date <= cutoff and int(quantity_delta or 0) > 0 and corporate_lot is None:
-                adjusted_stop = None
-                for lot in lots:
-                    metadata = json.loads(lot["metadata_json"] or "{}")
+            shares_done = not share_component
+            if share_component:
+                shares_done = list_date <= cutoff
+            for lot in lots:
+                current = conn.execute("SELECT metadata_json FROM paper_lots WHERE lot_id=?", (lot["lot_id"],)).fetchone()
+                metadata = json.loads(current[0] or "{}")
+                entitlement = metadata.get("corporate_action_entitlements", {}).get(event_id)
+                if entitlement is None:
+                    continue
+                applied_prices = metadata.setdefault("applied_price_actions", {})
+                if entitlement["ex_date"] <= cutoff and event_id not in applied_prices:
                     stop = _decimal(metadata.get("planned_stop_price"))
-                    if stop is not None and adjustment_factor > 0:
-                        metadata["planned_stop_price"] = str(stop / adjustment_factor)
-                        adjusted_stop = metadata["planned_stop_price"]
-                        conn.execute(
-                            "UPDATE paper_lots SET metadata_json = ? WHERE lot_id = ?",
-                            (canonical_json(metadata), lot["lot_id"]),
-                        )
-                metadata = {
-                    "corporate_action_event_id": event_id,
-                    "entitlement_record_date": record_date,
-                    "planned_stop_price": adjusted_stop,
-                    "realized_pnl_cents": 0,
-                }
-                conn.execute(
-                    """
-                    INSERT INTO paper_lots(
-                        lot_id, account_id, code, entry_date, planned_exit_date,
-                        quantity, sellable_quantity, cost_cents, status, metadata_json
-                    ) VALUES (?, ?, ?, ?, NULL, ?, ?, 0, 'OPEN', ?)
-                    """,
-                    (
-                        corporate_lot_id,
-                        str(account_id),
-                        code,
-                        list_date,
-                        int(quantity_delta),
-                        int(quantity_delta),
-                        canonical_json(metadata),
-                    ),
-                )
-                corporate_lot = True
-                changed = True
+                    if stop is not None:
+                        adjusted = (stop - (cash_per_share if cash_component else Decimal(0))) / adjustment_factor
+                        metadata["planned_stop_price"] = str(adjusted) if adjusted > 0 else None
+                    # Comparison stops/highs already use raw * contemporaneous adj_factor.
+                    applied_prices[event_id] = True
+                share_quantity = int(entitlement["share_quantity"])
+                if share_component and list_date <= cutoff and share_quantity > 0 and not entitlement["shares_listed"]:
+                    child_id = hashlib.sha256(f"corp-lot|{account_id}|{event_id}|{lot['lot_id']}".encode()).hexdigest()
+                    excluded = {"closed_at", "realized_pnl_cents", "corporate_action_entitlements", "exit_reason",
+                                "quantity_events", "entry_quantity", "entry_cost_cents", "entry_fee_cents"}
+                    child_metadata = {key: value for key, value in metadata.items() if key not in excluded}
+                    child_metadata.update(corporate_action_event_id=event_id, entitlement_record_date=record_date,
+                        economic_parent_lot_id=lot["lot_id"], economic_lot_id=metadata.get("economic_lot_id", lot["lot_id"]),
+                        realized_pnl_cents=0, entry_quantity=share_quantity, entry_cost_cents=0,
+                        quantity_events=[{"date": list_date, "quantity_delta": share_quantity}], quantity_history_complete=True)
+                    inserted = conn.execute(
+                        "INSERT OR IGNORE INTO paper_lots(lot_id,account_id,code,entry_date,planned_exit_date,"
+                        "quantity,sellable_quantity,cost_cents,status,metadata_json) VALUES (?,?,?,?,?,?,?,0,'OPEN',?)",
+                        (child_id, str(account_id), code, list_date, lot["planned_exit_date"], share_quantity,
+                         share_quantity, canonical_json(child_metadata))).rowcount
+                    entitlement["shares_listed"] = True
+                    changed |= bool(inserted)
+                if share_component and not entitlement["shares_listed"]:
+                    shares_done = False
+                conn.execute("UPDATE paper_lots SET metadata_json=? WHERE lot_id=?",
+                             (canonical_json(metadata), lot["lot_id"]))
             cash_done = not cash_component or (pay_date <= cutoff and int(received or 0) == int(receivable or 0))
-            shares_done = not share_component or (list_date <= cutoff and corporate_lot is not None)
             status = "SETTLED" if cash_done and shares_done else "PENDING"
             conn.execute(
                 """
@@ -417,6 +468,19 @@ def mark_portfolio(
             received = row.get("received_cash_cents")
             if pd.notna(confirmed):
                 receivable_cents += max(0, int(confirmed) - (int(received) if pd.notna(received) else 0))
+    share_receivable = 0
+    for code, quantity in pending_share_quantities(PaperPortfolio(store, account_id).lots(), _date(trade_date)).items():
+        quote = market_prices.get(code)
+        price = _decimal(quote.get("price") if isinstance(quote, Mapping) else quote)
+        if price is None or price <= 0:
+            unresolved_codes.append(code)
+        else:
+            value = _money_cents(price * quantity)
+            share_receivable += value
+            code_lots = lots.loc[lots.code.eq(code)]
+            sector = next((str(json.loads(raw).get("sector_id") or "UNKNOWN") for raw in code_lots.metadata_json), "UNKNOWN")
+            sector_values[sector] = sector_values.get(sector, 0) + value
+    receivable_cents += share_receivable
     known_value = cash + position_value + receivable_cents
     if unresolved_codes:
         status = "NAV_UNRESOLVED_VALUATION"
@@ -443,4 +507,5 @@ def mark_portfolio(
         unresolved_codes=tuple(unresolved_codes),
         sector_exposure=exposure,
         receivable_cents=receivable_cents,
+        share_receivable_cents=share_receivable,
     )

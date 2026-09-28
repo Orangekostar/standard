@@ -79,13 +79,16 @@ Interfaces: `prepare(source_db,experiment_root,config)->manifest`,
   change past factor or regime; test labels cannot change train bins or C.
 - [x] Implement source RO backup, streamed SHA and experiment lock/resume contract.
 - [x] Audit real flags, calendars, universe/sector validity, actions, old exposure.
-- [ ] Align sessions, compute original factors/scores in chunks, h5 labels,
+- [x] Align sessions, compute original factors/scores in chunks, h5 labels,
   fixed split and boundary purge. Persist common train model and bounded caches.
-- [ ] Run the real 50x160 smoke once before full-market features once; record RAM/time.
+- [x] Run the real 50x160 smoke before full-market features; record RAM/time.
   First completed real smoke: 50 stocks/160 sessions,37.169s with cProfile,
   peak process RSS1385656320 bytes. Initial native `stock` case mismatch was
   corrected before this completed run; no market/API resync. The subsequent
   equivalent status-aggregation optimization is checked by a non-null merge test.
+  Refreshed smoke9.124s; completed full preparation5349 codes/801 sessions/775
+  mature signal dates,54 feature chunks,1811.501s, peak process RSS3484811264 bytes.
+  Train-only model1245043 rows/246 purged dates, latest label end20250903.
 
 ## Task 4: Shared Stateful Replay
 
@@ -96,14 +99,16 @@ Interfaces: `replay_cell(experiment_root,config,strategy,split,cost,lambda_c,out
   next-open execution; new lot T+1; stop fill only subsequent sellable open;
   two lots with different expiry sell only the expired lot; failed exit does not
   arm cooldown; full actual flat does. Unknown prices never erase a held asset.
-- [ ] Implement finalized allocation/ranking, pending exit priority/merge, original
+- [x] Implement finalized allocation/ranking, pending exit priority/merge, original
   intent with actual holding quantities, lot metadata and common account valuation.
-- [ ] Export all eight per-cell artifacts, actual rejection funnel and reconciliation.
-- [ ] Cost test: 100shares@10 fee501cents; slipped price10.01 exactly once; stress
+- [x] Export all eight per-cell artifacts, actual rejection funnel and reconciliation.
+- [x] Cost test: 100shares@10 fee501cents; slipped price10.01 exactly once; stress
   changes quantity/fill paths instead of subtracting a terminal adjustment.
   Quantity-specific stress rejection,expiry/stop/reduction deduplication and
-  partial-reduction cooldown tests pass. Full corporate-share lot attribution,
-  stage integration and `replay_cell` are still pending; do not mark T4 complete.
+  partial-reduction cooldown tests pass. Record-date corporate-share attribution,
+  unlisted entitlement valuation, inherited expiry, economic-trade grouping and
+  hash-bound `replay_cell` are fixture-tested. Final semantic audit and actual
+  historical comparison remain pending; fixture success is not a winner claim.
 
 ## Task 5: Stage CLI And Research Evidence
 
@@ -112,14 +117,17 @@ Files: `core/pipeline/prism_comparison.py`, `scripts/compare_prism_v2.py`,
 Interfaces: `validate(root,config)`, `freeze(root,config)->path`,
 `test(root,frozen_manifest)`, `report(root)`, CLI subcommands and strict `--all`.
 
-- [ ] Tests first: test before freeze rejects; manifest mismatch rejects; successful
+- [x] Tests first: test before freeze rejects; manifest mismatch rejects; successful
   hash-bound replay reused; lambda zero denominator1/unidentifiable, lambda >1 capped1;
   paired common-date bootstrap differs from independent-date sampling; no API access.
-- [ ] Implement first A/B validation base, C freeze, remaining ten cells and two-worker
+- [x] Implement first A/B validation base, C freeze, remaining ten cells and two-worker
   bounded replay scheduling. Test halves continue a single account.
-- [ ] Export exact summary fields, validity-first verdict, CI and all evidence fields,
+- [x] Export exact summary fields, validity-first verdict, CI and all evidence fields,
   year/quarter/regime/sector/exit attribution, zero-trade adjusted-label diagnosis.
 - [ ] Generate all required reports/figures/manifests and verify their actual hashes.
+  The full fixture matrix/report export passes; actual historical outputs have not
+  been produced. Plotting dependencies are isolated, pinned and not installed into
+  the production venv. Insufficient-history report delivery still needs review.
 
 ## Task 6: Real Run, Review And GitHub Delivery
 
@@ -131,6 +139,9 @@ completion audit and local publish receipt.
 - [ ] Run one related V2 regression after implementation, document actual failures
   and fixes. If a test-exposed bug is found, record TEST_EXPOSED_BUGFIX and invalidate
   all affected symmetric cells, without tuning the policy.
+  Current source verification:229 V2 tests passed in112.085s, including the new
+  stage/report fixtures. The six unsupported-option rejection cases failed before
+  the config-loader fix and now pass. No formal comparison test was opened.
 - [ ] Primary review every ZIP section, numbered test family, parameter, invariant,
   named artifact, command, figure and delivery requirement against current evidence.
 - [ ] Upload explicit code/result whitelist and derived <=40MiB packages; try Release

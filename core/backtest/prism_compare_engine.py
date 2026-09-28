@@ -21,14 +21,14 @@ from core.backtest.execution_v2 import (
     _round_to_tick, execute_open_orders, persist_orders,
 )
 from core.backtest.metrics_v2 import calculate_portfolio_metrics
-from core.backtest.portfolio_v2 import PaperPortfolio, apply_corporate_actions, mark_portfolio
+from core.backtest.portfolio_v2 import PaperPortfolio, apply_corporate_actions, mark_portfolio, pending_share_quantities
 from core.backtest.prism_compare_rules import security_rule
 from core.data.v2_store import V2Store
-from core.pipeline.prism_compare_config import STRATEGIES, reference_cost, write_json
-from core.strategies.formula_v2 import ReturnBinModel, estimate_formula_return
+from core.pipeline.prism_compare_config import STRATEGIES, file_sha256, implementation_identity, reference_cost, write_json
+from core.strategies.formula_v2 import ReturnBinModel, ReturnBinStats, estimate_formula_return
 from core.strategies.intent_v2 import derive_research_intent
 from core.strategies.prism_a_share import adaptive_distance, entry_allowed, finite, update_stop
-from core.technical_v2.contracts import ContractError, canonical_json
+from core.technical_v2.contracts import ContractError, canonical_json, sha256_json
 
 DECISION_COLUMNS = (
     "date", "code", "strategy_id", "split", "cost_scenario", "signal_enabled",
@@ -202,7 +202,8 @@ class _Replay:
                             data = dict(current.metadata)
                             data["exit_reason"] = self.order_metadata[order.order_id]["lot_reasons"].get(lot_id, "SCORE_EXIT")
                             self._update_lot(lot_id, data)
-                    if not any(lot.status == "OPEN" and lot.code == order.code and lot.quantity > 0 for lot in after.values()):
+                    if not any(lot.status == "OPEN" and lot.code == order.code and lot.quantity > 0 for lot in after.values()) \
+                            and order.code not in pending_share_quantities(list(after.values())):
                         self.last_flat[order.code] = self.index[date]
             if order.side == "SELL" and not result.status.startswith("PENDING"):
                 self.pending_exits.pop(order.code, None)
@@ -224,23 +225,23 @@ class _Replay:
             close = _decimal(row.get("valuation_close"))
             if close is not None and close > 0:
                 self.last_marks[code] = close
-        prices: dict[str, Any] = {}
-        for lot in self.portfolio.lots():
-            if lot.status != "OPEN":
-                continue
-            row = rows.get(lot.code, {})
-            delist = _text(row.get("delist_date"))
-            if delist and date >= delist:
-                self.mark_status[lot.code] = "TERMINAL_UNRESOLVED"
-                prices[lot.code] = {"price": None}
-            elif lot.code in self.last_marks:
-                self.mark_status[lot.code] = "REAL_CLOSE" if finite(row.get("valuation_close")) is not None else "MARK_ONLY"
-                prices[lot.code] = {"price": self.last_marks[lot.code], "mark_only": self.mark_status[lot.code] == "MARK_ONLY"}
-            else:
-                self.mark_status[lot.code] = "VALUATION_UNAVAILABLE"
-                prices[lot.code] = {"price": None}
         if self.actions:
             apply_corporate_actions(self.store, self.account_id, self.actions, as_of_date=date)
+        lots = self.portfolio.lots()
+        active_codes = {lot.code for lot in lots if lot.status == "OPEN"} | set(pending_share_quantities(lots))
+        prices: dict[str, Any] = {}
+        for code in active_codes:
+            row = rows.get(code, {})
+            delist = _text(row.get("delist_date"))
+            if delist and date >= delist:
+                self.mark_status[code] = "TERMINAL_UNRESOLVED"
+                prices[code] = {"price": None}
+            elif code in self.last_marks:
+                self.mark_status[code] = "REAL_CLOSE" if finite(row.get("valuation_close")) is not None else "MARK_ONLY"
+                prices[code] = {"price": self.last_marks[code], "mark_only": self.mark_status[code] == "MARK_ONLY"}
+            else:
+                self.mark_status[code] = "VALUATION_UNAVAILABLE"
+                prices[code] = {"price": None}
         mark = mark_portfolio(self.store, self.account_id, date, prices)
         with closing(self.store._connect()) as conn:
             ledger_total = conn.execute("SELECT SUM(amount_cents) FROM paper_cash_ledger WHERE account_id=?", (self.account_id,)).fetchone()[0]
@@ -248,13 +249,13 @@ class _Replay:
             raise ContractError("cash ledger does not reconcile")
         if mark.nav_cents is not None and mark.nav_cents != mark.cash_cents + mark.position_value_cents + mark.receivable_cents:
             raise ContractError("NAV components do not reconcile")
-        active_codes = {lot.code for lot in self.portfolio.lots() if lot.status == "OPEN"}
         regime = next((_text(row.get("market_state"), "UNKNOWN") for row in rows.values()), "UNKNOWN")
         nav_row = dict(
             date=date, nav_cents=mark.nav_cents, known_value_cents=mark.known_value_cents,
             cash_cents=mark.cash_cents, position_value_cents=mark.position_value_cents,
             receivable_cents=mark.receivable_cents, status=mark.status,
-            gross_exposure=mark.position_value_cents / mark.nav_cents if mark.nav_cents else None,
+            share_receivable_cents=mark.share_receivable_cents,
+            gross_exposure=(mark.position_value_cents + mark.share_receivable_cents) / mark.nav_cents if mark.nav_cents else None,
             cash_ratio=mark.cash_cents / mark.nav_cents if mark.nav_cents else None,
             sector_exposure=mark.sector_exposure, market_state=regime,
             mark_only_codes=sorted(code for code in active_codes if self.mark_status.get(code) == "MARK_ONLY"),
@@ -269,6 +270,7 @@ class _Replay:
         index = self.index[date]
         next_date = self.sessions[index + 1] if index + 1 < len(self.sessions) else None
         lots = [lot for lot in self.portfolio.lots() if lot.status == "OPEN" and lot.quantity > 0]
+        pending_shares = pending_share_quantities(self.portfolio.lots())
         by_code: dict[str, list[Any]] = defaultdict(list)
         for lot in lots:
             by_code[lot.code].append(lot)
@@ -324,6 +326,8 @@ class _Replay:
                 blocks.append("NET_EDGE_BELOW_MINIMUM")
             eligibility = self._eligibility(row, next_date)
             blocks.extend(eligibility)
+            if code in pending_shares:
+                blocks.append("PENDING_CORPORATE_SHARES_BLOCK_NEW_RISK")
             if mark.nav_cents is None:
                 blocks.append("NAV_UNRESOLVED_BLOCKS_NEW_RISK")
             if next_date is None:
@@ -377,7 +381,7 @@ class _Replay:
                          score65_55=raw_condition, not_extended=quantity > 0 or overextended is False,
                          return_estimate=gross is not None,
                          net_edge=edge is not None and edge > self.config["shared_portfolio"]["net_edge_min_exclusive"],
-                         trade_eligibility=not eligibility, state_cooldown=multiplier > 0 and not cooling and not caps.get(code),
+                         trade_eligibility=not eligibility, state_cooldown=multiplier > 0 and not cooling and not caps.get(code) and code not in pending_shares,
                          quantity=False, order=False)
             decisions.append(dict(
                 date=date, code=code, strategy_id=self.strategy, split=self.split, cost_scenario=self.cost,
@@ -434,6 +438,7 @@ class _Replay:
                 continue
             old = self.pending_exits.get(code)
             if old is not None and old.lot_quantities == selected:
+                self.order_metadata[old.order_id]["lot_reasons"] = {key: reasons[code][key] for key, _ in selected}
                 continue
             if old is not None:
                 with self.store._write_connection() as conn:
@@ -564,19 +569,23 @@ class _Replay:
         fills["modeled_slippage_cny"] = [float(self.slippage.get(str(key), Decimal(0))) for key in fills.order_id]
         for field in ("signal_date", "intent_reasons", "quantity_cost", "quantity_net_edge"):
             orders[field] = [self.order_metadata.get(str(key), {}).get(field) for key in orders.order_id]
-        closed_columns = ["lot_id", "code", "status", "entry_date", "closed_at", "entry_quantity", "entry_cost_cents", "realized_pnl_cents", "sector_id", "entry_regime", "exit_reason"]
-        remaining_columns = ["lot_id", "code", "entry_date", "planned_exit_date", "quantity", "cost_cents", "sector_id", "comparison_stop", "highest_comparison_close", "valuation_status"]
-        closed, remaining = [], []
+        remaining_columns = ["lot_id", "code", "entry_date", "planned_exit_date", "quantity", "cost_cents", "sector_id", "comparison_stop", "highest_comparison_close", "valuation_status", "asset_type"]
+        remaining = []
         for lot in self.portfolio.lots():
-            if lot.status == "CLOSED":
-                closed.append(dict(lot_id=lot.lot_id, code=lot.code, status=lot.status, entry_date=lot.entry_date,
-                                   sector_id=lot.metadata.get("entry_sector_id"), **{key: lot.metadata.get(key) for key in closed_columns if key not in {"lot_id", "code", "status", "entry_date", "sector_id"}}))
-            else:
+            if lot.status == "OPEN":
                 remaining.append(dict(lot_id=lot.lot_id, code=lot.code, entry_date=lot.entry_date,
                     planned_exit_date=lot.planned_exit_date, quantity=lot.quantity, cost_cents=lot.cost_cents,
                     sector_id=lot.metadata.get("entry_sector_id"), comparison_stop=lot.metadata.get("comparison_stop"),
-                    highest_comparison_close=lot.metadata.get("highest_comparison_close"), valuation_status=self.mark_status.get(lot.code, "VALUATION_UNAVAILABLE")))
-        closed_frame, remaining_frame = pd.DataFrame(closed, columns=closed_columns), pd.DataFrame(remaining, columns=remaining_columns)
+                    highest_comparison_close=lot.metadata.get("highest_comparison_close"), valuation_status=self.mark_status.get(lot.code, "VALUATION_UNAVAILABLE"), asset_type="LISTED_SHARES"))
+            for event_id, entitlement in lot.metadata.get("corporate_action_entitlements", {}).items():
+                if not entitlement["shares_listed"] and int(entitlement["share_quantity"]) > 0:
+                    remaining.append(dict(lot_id=f"{lot.lot_id}:receivable:{event_id}", code=lot.code,
+                        entry_date=lot.entry_date, planned_exit_date=lot.planned_exit_date,
+                        quantity=entitlement["share_quantity"], cost_cents=0,
+                        sector_id=lot.metadata.get("entry_sector_id"), comparison_stop=lot.metadata.get("comparison_stop"),
+                        highest_comparison_close=lot.metadata.get("highest_comparison_close"),
+                        valuation_status=self.mark_status.get(lot.code, "VALUATION_UNAVAILABLE"), asset_type="CORPORATE_SHARE_RECEIVABLE"))
+        closed_frame, remaining_frame = self.portfolio.closed_trades(), pd.DataFrame(remaining, columns=remaining_columns)
         for name, frame in (("daily_nav", nav), ("orders", orders), ("fills", fills), ("closed_trades", closed_frame)):
             _export_csv(self.output / f"{name}.csv.gz", frame)
         _export_csv(self.output / "remaining_positions.csv", remaining_frame)
@@ -657,3 +666,66 @@ def replay_frames(frames: Iterable[tuple[str, pd.DataFrame]], *, sessions: list[
     if seen != expected:
         raise ContractError("daily cache omits a common replay session")
     return replay.finish(started)
+
+
+CELL_FILES = ("daily_nav.csv.gz", "decisions.csv.gz", "orders.csv.gz", "fills.csv.gz",
+              "closed_trades.csv.gz", "remaining_positions.csv", "metrics.json", "runtime.json",
+              "gate_funnel.json", "account.db")
+
+
+def replay_cell(experiment_root: str | Path, *, config: dict[str, Any], strategy_id: str,
+                split: str, cost_scenario: str, lambda_c: float, output_dir: str | Path,
+                run_id: str) -> dict[str, Any]:
+    from core.pipeline.prism_compare_data import _verify_cache_file, load_daily_cache
+
+    root, output = Path(experiment_root).resolve(), Path(output_dir).resolve()
+    dataset_path = root / "dataset_manifest.json"
+    dataset = json.loads(dataset_path.read_text())
+    if dataset["configuration_sha256"] != sha256_json(config):
+        raise ContractError("prepared dataset configuration differs from the replay configuration")
+    if dataset["status"] != "OK" or split not in dataset["split_plan"]["replay_windows"]:
+        raise ContractError("prepared dataset has no eligible frozen replay window")
+    for path, expected in ((root / "feature_manifest.json", dataset["feature_manifest_sha256"]),
+                           (root / "split.csv", dataset["split_sha256"])):
+        if file_sha256(path) != expected:
+            raise ContractError(f"prepared dataset SHA256 mismatch: {path}")
+    _verify_cache_file(dataset["common_return_bins"])
+    identity = implementation_identity()
+    scale = lambda_c if strategy_id == "C0_V2_EXPOSURE_CONTROL" else 1.
+    binding = {"dataset_sha256": file_sha256(dataset_path),
+        "snapshot_sha256": dataset["snapshot"]["snapshot_sha256"],
+        "feature_identity": dataset["feature_identity"], "configuration_sha256": sha256_json(config),
+        "implementation_hash": identity["implementation_hash"], "strategy_id": strategy_id,
+        "split": split, "cost_scenario": cost_scenario, "lambda_c": scale, "run_id": run_id}
+    receipt_path = output / "cell_manifest.json"
+    if receipt_path.exists():
+        receipt = json.loads(receipt_path.read_text())
+        if receipt["status"] != "COMPLETE" or receipt["binding"] != binding:
+            raise ContractError("completed cell binding/hash differs; do not reuse unrelated results")
+        for name in CELL_FILES:
+            record, path = receipt["files"][name], output / name
+            if path.stat().st_size != record["bytes"] or file_sha256(path) != record["sha256"]:
+                raise ContractError(f"completed cell SHA256 mismatch: {path}")
+        return {"metrics": json.loads((output / "metrics.json").read_text()),
+                "runtime": json.loads((output / "runtime.json").read_text()),
+                "funnel": json.loads((output / "gate_funnel.json").read_text()),
+                "cell_manifest": receipt, "reused": True}
+    if output.exists() and any(output.iterdir()):
+        raise ContractError("incomplete cell preserved; recover to a fresh attempt before replay")
+    feature_manifest = json.loads((root / "feature_manifest.json").read_text())
+    sessions = feature_manifest["sessions"]
+    window = dataset["split_plan"]["replay_windows"][split]
+    dates = sessions[sessions.index(window["start_date"]):sessions.index(window["end_date"]) + 1]
+    data = json.loads(Path(dataset["common_return_bins"]["path"]).read_text())
+    model = ReturnBinModel(**{**data, "bins": tuple(ReturnBinStats(**item) for item in data["bins"])})
+    if model.entity_type != "stock" or model.horizon != config["strategies"]["A0_V2_F0"]["primary_horizon"]:
+        raise ContractError("shared return bins have a different entity or horizon")
+    result = replay_frames(load_daily_cache(root, dates), sessions=sessions,
+        signal_dates=window["signal_dates"], config=config, strategy_id=strategy_id, split=split,
+        cost_scenario=cost_scenario, model=model, lambda_c=scale, output_dir=output, run_id=run_id,
+        scope_flags=dataset["scope_flags"], corporate_actions=pd.read_parquet(root / "corporate_actions.parquet"))
+    receipt = {"status": "COMPLETE", "binding": binding, "source_identity": identity,
+               "files": {name: {"bytes": (output / name).stat().st_size,
+                                "sha256": file_sha256(output / name)} for name in CELL_FILES}}
+    write_json(receipt_path, receipt, immutable=True)
+    return {**result, "cell_manifest": receipt, "reused": False}

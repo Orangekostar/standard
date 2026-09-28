@@ -4,6 +4,7 @@ import copy
 import json
 import tempfile
 import unittest
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +13,7 @@ import pandas as pd
 from core.backtest.prism_compare_engine import replay_frames
 from core.pipeline.prism_compare_config import load_config
 from core.strategies.formula_v2 import ReturnBinModel, ReturnBinStats
+from core.technical_v2.contracts import ContractError, sha256_json
 
 
 class PrismReplayTest(unittest.TestCase):
@@ -46,13 +48,14 @@ class PrismReplayTest(unittest.TestCase):
         return result
 
     def run_replay(self, name, frames, strategy="A0_V2_F0", signals=1, config=None,
-                   gross=.03, cost="base", lambda_c=1.):
+                   gross=.03, cost="base", lambda_c=1., actions=None):
         output = self.root / name
         result = replay_frames(
             frames, sessions=self.sessions, signal_dates=self.sessions[:signals],
             config=config or self.config, strategy_id=strategy, split="validation",
             cost_scenario=cost, model=self.model(gross), lambda_c=lambda_c,
             output_dir=output, run_id="fixture", scope_flags=(),
+            corporate_actions=actions,
         )
         return result, output
 
@@ -214,6 +217,98 @@ class PrismReplayTest(unittest.TestCase):
         self.assertEqual(stress["metrics"]["filled_buy_count"], 0)
         decisions = self.read(stressed_output, "decisions")
         self.assertIn("QUANTITY_SPECIFIC_NET_EDGE", decisions.iloc[0].all_blockers)
+
+    def prepared_fixture(self):
+        from core.pipeline.prism_compare_config import file_sha256, write_json
+        from core.pipeline.prism_compare_data import write_replay_chunk
+        root = self.root / "prepared"
+        root.mkdir()
+        frames = pd.concat([frame for _, frame in self.frames(signals=9)], ignore_index=True)
+        record = write_replay_chunk(root / "replay.parquet", frames, self.sessions)
+        write_json(root / "feature_manifest.json", {"sessions": self.sessions, "replay_chunks": [record]})
+        write_json(root / "common_return_bins.json", asdict(self.model()))
+        pd.DataFrame({"signal_date": self.sessions[:2], "split": "validation"}).to_csv(root / "split.csv", index=False)
+        pd.DataFrame(columns=["event_id", "code"]).to_parquet(root / "corporate_actions.parquet", index=False)
+        write_json(root / "dataset_manifest.json", {"status": "OK", "as_of": self.sessions[-1],
+            "configuration_sha256": sha256_json(self.config), "feature_identity": "FIXTURE_ONLY",
+            "feature_manifest_sha256": file_sha256(root / "feature_manifest.json"),
+            "split_sha256": file_sha256(root / "split.csv"), "scope_flags": [],
+            "snapshot": {"snapshot_sha256": "FIXTURE_NOT_VENDOR_DATA"},
+            "common_return_bins": {"path": str(root / "common_return_bins.json"),
+                                    "sha256": file_sha256(root / "common_return_bins.json")},
+            "split_plan": {"replay_windows": {"validation": {"signal_dates": self.sessions[:2],
+                "start_date": self.sessions[0], "end_date": self.sessions[7]}}}})
+        return root
+
+    def test_completed_cell_reuses_verified_outputs_and_rejects_tampering(self):
+        from core.backtest.prism_compare_engine import replay_cell
+        from core.pipeline.prism_compare_config import file_sha256
+        root, output = self.prepared_fixture(), self.root / "official-cell"
+        kwargs = dict(config=self.config, strategy_id="A0_V2_F0", split="validation", cost_scenario="base",
+                      lambda_c=1., output_dir=output, run_id="fixture")
+        first = replay_cell(root, **kwargs)
+        account_sha = file_sha256(output / "account.db")
+        metrics_mtime = (output / "metrics.json").stat().st_mtime_ns
+        second = replay_cell(root, **kwargs)
+        self.assertFalse(first["reused"])
+        self.assertTrue(second["reused"])
+        self.assertEqual(second["metrics"], first["metrics"])
+        self.assertEqual(file_sha256(output / "account.db"), account_sha)
+        self.assertEqual((output / "metrics.json").stat().st_mtime_ns, metrics_mtime)
+        (output / "fills.csv.gz").write_bytes(b"CORRUPTED_FIXTURE")
+        with self.assertRaisesRegex(ContractError, "hash|SHA256"):
+            replay_cell(root, **kwargs)
+
+    def test_prepared_cell_does_not_accept_a_different_configuration(self):
+        from core.backtest.prism_compare_engine import replay_cell
+        root = self.prepared_fixture()
+        config = copy.deepcopy(self.config)
+        config["shared_portfolio"]["initial_capital_cny"] = 2e6
+        with self.assertRaisesRegex(ContractError, "configuration"):
+            replay_cell(root, config=config, strategy_id="A0_V2_F0", split="validation", cost_scenario="base",
+                        lambda_c=1., output_dir=self.root / "changed", run_id="fixture")
+
+    def test_ex_dividend_scale_does_not_trigger_b_stop_or_split_one_trade_into_two(self):
+        frames = self.frames()
+        event = pd.DataFrame([dict(event_id="bonus", code="600000.SH", record_date=self.sessions[2],
+            ex_date=self.sessions[3], list_date=self.sessions[3], share_ratio=".1", status="implemented")])
+        for index in range(3, len(frames)):
+            frames[index][1].loc[0, ["execution_open", "valuation_close", "close"]] = 10 / 1.1
+            frames[index][1].loc[0, "adj_factor"] = 1.1
+        result, output = self.run_replay("ex-dividend", frames, "B0_PRISM_A_SHARE_V1", actions=event)
+        fills = self.read(output, "fills")
+        self.assertEqual(fills.trade_date.tolist(), [self.sessions[1], self.sessions[6]])
+        self.assertEqual(result["metrics"]["closed_trade_count"], 1)
+        self.assertEqual(fills.iloc[1].quantity, fills.iloc[0].quantity * 11 // 10)
+        self.assertEqual(self.read(output, "closed_trades").exit_reason.tolist(), ["FIXED_5_SESSION_EXPIRY"])
+
+    def test_pending_bonus_rights_keep_valid_nav_and_delay_cooldown_until_all_actual_shares_are_sold(self):
+        self.sessions = pd.bdate_range("2024-01-02", periods=20).strftime("%Y%m%d").tolist()
+        frames = self.frames(signals=10)
+        event = pd.DataFrame([dict(event_id="late-bonus", code="600000.SH", record_date=self.sessions[1],
+            ex_date=self.sessions[2], list_date=self.sessions[5], share_ratio=".1", status="implemented")])
+        for index in range(2, len(frames)):
+            frames[index][1].loc[0, ["execution_open", "valuation_close", "close"]] = 10 / 1.1
+            frames[index][1].loc[0, "adj_factor"] = 1.1
+        frames[2][1].loc[0, "score5"] = 40.
+        result, output = self.run_replay("late-bonus", frames, "B0_PRISM_A_SHARE_V1", signals=10, actions=event)
+        nav = self.read(output, "daily_nav")
+        self.assertTrue(nav.status.eq("OK").all())
+        decisions = self.read(output, "decisions").set_index("date")
+        self.assertIn("PENDING_CORPORATE_SHARES_BLOCK_NEW_RISK", decisions.loc[self.sessions[3], "all_blockers"])
+        self.assertNotIn("COOLDOWN_ACTIVE", decisions.loc[self.sessions[3], "all_blockers"])
+        fills = self.read(output, "fills")
+        self.assertEqual(fills.iloc[2].trade_date, self.sessions[6])
+        self.assertEqual(fills.iloc[3].trade_date, self.sessions[9])
+        self.assertEqual(result["metrics"]["unresolved_asset_count"], 0)
+
+    def test_pending_price_exit_keeps_quantity_but_upgrades_reason_when_expiry_becomes_due(self):
+        frames = self.frames()
+        frames[1][1].loc[0, ["valuation_close", "close"]] = 9.
+        for index in range(2, 6):
+            frames[index][1].loc[0, "is_suspended"] = True
+        _, output = self.run_replay("exit-priority", frames, "B0_PRISM_A_SHARE_V1")
+        self.assertEqual(self.read(output, "closed_trades").exit_reason.tolist(), ["FIXED_5_SESSION_EXPIRY"])
 
 
 if __name__ == "__main__":

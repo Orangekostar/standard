@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import json
 from decimal import Decimal
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from core.backtest.portfolio_v2 import (
     mark_portfolio,
 )
 from core.data.v2_store import V2Store
+from core.technical_v2.contracts import canonical_json
 
 
 class CorporateActionTest(unittest.TestCase):
@@ -114,6 +116,65 @@ class CorporateActionTest(unittest.TestCase):
         self.assertIsNone(action_mark.nav_cents)
         self.assertEqual(missing_mark.status, "NAV_UNRESOLVED_VALUATION")
         self.assertIsNone(missing_mark.nav_cents)
+
+    def share_event(self, ratio="0.10"):
+        return dict(event_id="shares", code="600000.SH", record_date="20260922",
+                    ex_date="20260923", list_date="20260925", share_ratio=ratio,
+                    split_ratio=None, cash_per_share=None, pay_date=None, status="implemented")
+
+    def sell(self, order_id, date, quantity):
+        return execute_open_orders(self.store,
+            [PaperOrder(order_id, "run-a", "account-a", "600000.SH", "SELL", quantity, date, Decimal("9.09"), None)],
+            {"600000.SH": MarketOpen("600000.SH", date, Decimal("9.09"), Decimal(11), Decimal(8), False, False)},
+            fee_schedule=FeeSchedule.research_defaults("20200101", source="fixture-fees"),
+            security_rules={"600000.SH": SecurityRule(100, Decimal(".01"), "20200101", None, "fixture-rule")})
+
+    def test_pending_listed_share_entitlement_is_valued_without_a_listing_day_nav_jump(self):
+        event = self.share_event()
+        apply_corporate_actions(self.store, "account-a", [event], as_of_date="20260922")
+        apply_corporate_actions(self.store, "account-a", [event], as_of_date="20260923")
+        pending = mark_portfolio(self.store, "account-a", "20260923", {"600000.SH": Decimal("9.09")})
+        self.assertEqual(pending.position_value_cents, 90900)
+        self.assertEqual(pending.receivable_cents, 9090)
+        apply_corporate_actions(self.store, "account-a", [event], as_of_date="20260925")
+        listed = mark_portfolio(self.store, "account-a", "20260925", {"600000.SH": Decimal("9.09")})
+        self.assertEqual(listed.receivable_cents, 0)
+        self.assertEqual(listed.nav_cents, pending.nav_cents)
+
+    def test_bonus_lot_inherits_expiry_and_comparison_reference_and_is_one_economic_trade(self):
+        parent = self.portfolio.lots()[0]
+        metadata = {**parent.metadata, "comparison_stop": 9.3, "highest_comparison_close": 10.5,
+                    "entry_regime": "RANGE", "entry_sector_id": "BANK"}
+        with self.store._write_connection() as conn:
+            conn.execute("UPDATE paper_lots SET metadata_json=? WHERE lot_id=?", (canonical_json(metadata), parent.lot_id))
+        event = self.share_event()
+        apply_corporate_actions(self.store, "account-a", [event], as_of_date="20260922")
+        self.sell("parent-exit", "20260923", 100)
+        self.assertTrue(self.portfolio.closed_trades().empty)
+        apply_corporate_actions(self.store, "account-a", [event], as_of_date="20260925")
+        child = next(lot for lot in self.portfolio.lots() if lot.status == "OPEN")
+        self.assertEqual(child.quantity, 10)
+        self.assertEqual(child.planned_exit_date, "20261008")
+        self.assertEqual(child.metadata["economic_lot_id"], parent.lot_id)
+        self.assertEqual(child.metadata["comparison_stop"], 9.3)
+        self.assertEqual(child.metadata["highest_comparison_close"], 10.5)
+        self.sell("bonus-exit", "20260926", 10)
+        closed = self.portfolio.closed_trades()
+        self.assertEqual(len(closed), 1)
+        self.assertEqual(closed.iloc[0].lot_id, parent.lot_id)
+        self.assertEqual(closed.iloc[0].realized_pnl_cents, -1772)
+
+    def test_first_action_processing_after_parent_sale_uses_record_date_quantity(self):
+        self.sell("early-sale", "20260923", 100)
+        result = apply_corporate_actions(self.store, "account-a", [self.share_event()], as_of_date="20260925")
+        self.assertEqual(result.applied_events, 1)
+        self.assertEqual(sum(lot.quantity for lot in self.portfolio.lots()), 10)
+        self.assertEqual(self.portfolio.corporate_action_ledger().iloc[0].quantity_delta, 10)
+
+    def test_zero_fractional_share_entitlement_does_not_remain_pending_forever(self):
+        apply_corporate_actions(self.store, "account-a", [self.share_event("0.001")], as_of_date="20260925")
+        self.assertEqual(self.portfolio.corporate_action_ledger().iloc[0].status, "SETTLED")
+        self.assertEqual(sum(lot.quantity for lot in self.portfolio.lots()), 100)
 
 
 if __name__ == "__main__":
