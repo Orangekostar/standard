@@ -1,0 +1,13 @@
+strategy_id,split,cost_scenario,net_return,fees_total,modeled_slippage_total,filled_buy_count,closed_trade_count
+A0_V2_F0,validation,base,0.0,0.0,0.0,0,0
+A0_V2_F0,validation,stress,0.0,0.0,0.0,0,0
+A0_V2_F0,test,base,0.0,0.0,0.0,0,0
+A0_V2_F0,test,stress,0.0,0.0,0.0,0,0
+B0_PRISM_A_SHARE_V1,validation,base,0.0,0.0,0.0,0,0
+B0_PRISM_A_SHARE_V1,validation,stress,0.0,0.0,0.0,0,0
+B0_PRISM_A_SHARE_V1,test,base,0.0,0.0,0.0,0,0
+B0_PRISM_A_SHARE_V1,test,stress,0.0,0.0,0.0,0,0
+C0_V2_EXPOSURE_CONTROL,validation,base,0.0,0.0,0.0,0,0
+C0_V2_EXPOSURE_CONTROL,validation,stress,0.0,0.0,0.0,0,0
+C0_V2_EXPOSURE_CONTROL,test,base,0.0,0.0,0.0,0,0
+C0_V2_EXPOSURE_CONTROL,test,stress,0.0,0.0,0.0,0,0

@@ -108,8 +108,8 @@ Interfaces: `replay_cell(experiment_root,config,strategy,split,cost,lambda_c,out
   Quantity-specific stress rejection,expiry/stop/reduction deduplication and
   partial-reduction cooldown tests pass. Record-date corporate-share attribution,
   unlisted entitlement valuation, inherited expiry, economic-trade grouping and
-  hash-bound `replay_cell` are fixture-tested. Final semantic audit and actual
-  historical comparison remain pending; fixture success is not a winner claim.
+  hash-bound `replay_cell` are fixture-tested. Primary semantic review and the
+  actual12-cell historical comparison are complete; zero trades are not a win.
 
 ## Task 5: Stage CLI And Research Evidence
 
@@ -125,10 +125,10 @@ Interfaces: `validate(root,config)`, `freeze(root,config)->path`,
   bounded replay scheduling. Test halves continue a single account.
 - [x] Export exact summary fields, validity-first verdict, CI and all evidence fields,
   year/quarter/regime/sector/exit attribution, zero-trade adjusted-label diagnosis.
-- [ ] Generate all required reports/figures/manifests and verify their actual hashes.
-  The full fixture matrix/report export passes; actual historical outputs have not
-  been produced. Plotting dependencies are isolated, pinned and not installed into
-  the production venv. Insufficient-history report delivery still needs review.
+- [x] Generate all required reports/figures/manifests and verify their actual hashes.
+  Actual12 cells,161 manifest-record file hashes,6258330 decisions and12 ledgers
+  checked. Three1632x960 images pixel-checked and personally viewed. Plotting
+  dependencies remain isolated. Insufficient-history/null NOT_RUN fixtures pass.
 
 ## Task 6: Real Run, Review And GitHub Delivery
 
@@ -144,18 +144,23 @@ completion audit and local publish receipt; `core/pipeline/prism_compare_deliver
   every part to the configured maximum40MiB, verify part/archive/restored-file
   hashes, refuse raw/credential/unlisted inputs, and preserve incomplete attempts.
 
-- [ ] Commit SOURCE_COMMIT before test; execute prepare/validate/freeze/test/report
+- [x] Commit SOURCE_COMMIT before test; execute prepare/validate/freeze/test/report
   with the explicit interpreter and frozen paths. Keep zero/negative results.
-- [ ] Run one related V2 regression after implementation, document actual failures
+  Source410de2d; freeze11:55:56.462186UTC before test11:55:56.503642UTC;
+  full pipeline722s/peak1845977088 bytes/API0. All12 cells completed; actual
+  resume reused12/12. Zero-trade INSUFFICIENT_TRADING_EVIDENCE retained.
+- [x] Run one related V2 regression after implementation, document actual failures
   and fixes. If a test-exposed bug is found, record TEST_EXPOSED_BUGFIX and invalidate
   all affected symmetric cells, without tuning the policy.
   Current source verification:236 V2 tests passed in113.988s, including the new
   stage/report/package fixtures. Unsupported-option, audit-binding, insufficient
   history, unlisted-share capacity and tail-denominator regressions were checked
-  before the formal comparison. No formal comparison test was opened at this
-  source-audit checkpoint; this checkbox awaits final runtime review.
-- [ ] Primary review every ZIP section, numbered test family, parameter, invariant,
+  before the formal comparison. Formal runtime/ledger/report review is complete;
+  implementation hash remains unchanged and there is no TEST_EXPOSED_BUGFIX.
+- [x] Primary review every ZIP section, numbered test family, parameter, invariant,
   named artifact, command, figure and delivery requirement against current evidence.
+  COMPLETION_AUDIT records sections0-15, all10 families and direct actual evidence;
+  publication state is separately pending. Archive restore verified162 files/7parts.
 - [ ] Upload explicit code/result whitelist and derived <=40MiB packages; try Release
   and PR with actual available authorization; record precise failure/local-only scope.
 - [ ] Verify remote branch HEAD and local publish receipt file sizes/SHA; final reply

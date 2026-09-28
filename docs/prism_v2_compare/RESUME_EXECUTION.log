@@ -1,0 +1,13 @@
+{"event": "cell_complete", "strategy_id": "A0_V2_F0", "split": "validation", "cost_scenario": "stress", "reused": true}
+{"event": "cell_complete", "strategy_id": "A0_V2_F0", "split": "validation", "cost_scenario": "base", "reused": true}
+{"event": "cell_complete", "strategy_id": "A0_V2_F0", "split": "test", "cost_scenario": "stress", "reused": true}
+{"event": "cell_complete", "strategy_id": "A0_V2_F0", "split": "test", "cost_scenario": "base", "reused": true}
+{"event": "cell_complete", "strategy_id": "B0_PRISM_A_SHARE_V1", "split": "validation", "cost_scenario": "stress", "reused": true}
+{"event": "cell_complete", "strategy_id": "B0_PRISM_A_SHARE_V1", "split": "validation", "cost_scenario": "base", "reused": true}
+{"event": "cell_complete", "strategy_id": "B0_PRISM_A_SHARE_V1", "split": "test", "cost_scenario": "base", "reused": true}
+{"event": "cell_complete", "strategy_id": "B0_PRISM_A_SHARE_V1", "split": "test", "cost_scenario": "stress", "reused": true}
+{"event": "cell_complete", "strategy_id": "C0_V2_EXPOSURE_CONTROL", "split": "validation", "cost_scenario": "stress", "reused": true}
+{"event": "cell_complete", "strategy_id": "C0_V2_EXPOSURE_CONTROL", "split": "validation", "cost_scenario": "base", "reused": true}
+{"event": "cell_complete", "strategy_id": "C0_V2_EXPOSURE_CONTROL", "split": "test", "cost_scenario": "base", "reused": true}
+{"event": "cell_complete", "strategy_id": "C0_V2_EXPOSURE_CONTROL", "split": "test", "cost_scenario": "stress", "reused": true}
+{"stage": "test", "run_id": "prism-v2-20260928-54f76420f1a45b76", "artifact_dir": "/home/ww/vv/quant/.worktrees/prism-v2-backtest/artifacts/prism_v2_compare/prism-v2-20260928-54f76420f1a45b76", "status": "COMPLETE", "cell_count": 12, "reused_cell_count": 12}

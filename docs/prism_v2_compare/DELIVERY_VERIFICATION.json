@@ -1,0 +1,19 @@
+{
+  "status": "PASS",
+  "date_utc": "2026-09-28",
+  "purpose": "FRESH_PRE_DELIVERY_REGRESSION",
+  "source_commit": "410de2d9b5d3cf380d0d759ea7652bb541956fd6",
+  "implementation_hash": "491dd1a2ed1413274018972631011a7c707f86e665aceb4d31a5cf24a4192b59",
+  "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 TMPDIR=/dev/shm /home/ww/vv/quant/.venv/bin/python -m unittest discover -s tests/v2 -p 'test_*.py'",
+  "tests_run": 236,
+  "elapsed_seconds": 114.360,
+  "failures": 0,
+  "errors": 0,
+  "exit_code": 0,
+  "warnings": [
+    "Matplotlib/NumPy generic timedelta deprecation warning",
+    "Streamlit missing ScriptRunContext in bare mode"
+  ],
+  "interpretation": "IMPLEMENTATION_VERIFICATION_NOT_PROFIT_EVIDENCE",
+  "frozen_artifact_regression_receipt_preserved": true
+}

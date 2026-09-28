@@ -1,0 +1,18 @@
+{
+  "status": "PASS",
+  "date_utc": "2026-09-28",
+  "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 TMPDIR=/dev/shm /home/ww/vv/quant/.venv/bin/python -m unittest discover -s tests/v2 -p 'test_*.py'",
+  "implementation_hash": "491dd1a2ed1413274018972631011a7c707f86e665aceb4d31a5cf24a4192b59",
+  "tested_source_commit": "7a39ed29c42defa9c09cf1fd3212c7ea4c3039fa",
+  "experiment_source_commit": "410de2d9b5d3cf380d0d759ea7652bb541956fd6",
+  "tests_run": 236,
+  "elapsed_seconds": 113.988,
+  "failures": 0,
+  "errors": 0,
+  "exit_code": 0,
+  "warnings": [
+    "Matplotlib/NumPy generic timedelta deprecation warning",
+    "Streamlit missing ScriptRunContext in bare mode"
+  ],
+  "interpretation": "IMPLEMENTATION_FIXTURES_NOT_MAIN_HISTORICAL_PERFORMANCE"
+}
