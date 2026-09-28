@@ -1,7 +1,8 @@
 # Prism / Technical V2 Research Handoff
 
-Status: LOCAL_DELIVERY_VERIFIED_PUBLICATION_PENDING. The full fixed matrix,
-accounts, figures and restored package are verified; remote delivery is pending.
+Status: COMPLETE_GIT_FALLBACK. The full fixed matrix, accounts, figures and
+restored package are verified and delivered through the research branch.
+PR/Release creation failed401; the specified Git fallback was completed.
 
 | Test/base strategy | Net return | Drawdown | Sharpe | Mean exposure | Closed trades |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -207,6 +208,13 @@ OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 /home/ww/vv/quant/.ve
 The verification script asserts this observed all-cash run; it is not a generic
 profit validator. Preserve the existing restoration and use a new empty output
 directory to repeat restore. Pack verifies and reuses the successful archive.
+On a fresh checkout, first restore the seven parts, then point the verifier's
+`--artifact-dir` to that restored directory; large cell details are archived,
+not separately duplicated in Git. Install plotting dependencies only when
+absent, using the existing interpreter with
+`-m pip install --target cache/experiments/prism_v2/plotting --no-deps -r configs/prism_v2_plotting_requirements.txt`,
+never upgrade the production environment. The identical replay additionally
+requires the retained lawful local market snapshot/shared cache.
 `COMPARISON_EXECUTION.log` and `RESUME_EXECUTION.log` preserve the actual pipeline
 and12-cell resume logs without credentials. The completed regression receipt
 and per-cell runtime evidence are in the run's `TEST_REPORT.md`.
@@ -235,12 +243,25 @@ SOURCE_COMMIT is the code used by the frozen protocol. DELIVERY_COMMIT contains
 the later results/packages/handoff. The final commit ID, fresh remote HEAD and
 actual Git-tracked file list with sizes/SHA256 are recorded externally in
 `cache/experiments/prism_v2/frozen-20260928-v1/publish_receipt.json`, avoiding
-an impossible self-referencing committed hash. Publication is pending until
-that receipt verifies the non-force push and matching remote branch.
+an impossible self-referencing committed hash. Initial result delivery
+`be0f85117f8daf92438edfd4053045ecc9975499` was pushed non-force and verified by
+fresh ls-remote, fetch and83 changed-file Git blob/size/SHA256 bindings.
+`GIT_DELIVERY_EVIDENCE.json` retains that actual pre-document-update receipt;
+the external final receipt additionally binds the subsequent documentation
+commit. These checks bind Git objects to the remote commit, not a claim that
+every remote blob was independently downloaded again over HTTPS.
+
+Repository branch:
+https://github.com/Orangekostar/standard/tree/research/prism-v2-backtest
+Fixed actual report:
+https://github.com/Orangekostar/standard/blob/be0f85117f8daf92438edfd4053045ecc9975499/artifacts/prism_v2_compare/prism-v2-20260928-54f76420f1a45b76/RESEARCH_REPORT.md
+All seven packages and restoration manifest:
+https://github.com/Orangekostar/standard/tree/be0f85117f8daf92438edfd4053045ecc9975499/artifacts/prism_v2_compare/prism-v2-20260928-54f76420f1a45b76/packages
 
 ```bash
 git push origin HEAD:refs/heads/research/prism-v2-backtest
 git ls-remote origin refs/heads/research/prism-v2-backtest
+git fetch --no-tags origin refs/heads/research/prism-v2-backtest
 ```
 
 Raw vendor snapshot, feature cache, local restoration, experiment lock and

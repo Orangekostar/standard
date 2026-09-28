@@ -1,8 +1,9 @@
 # Original ZIP Completion Audit
 
-Status: LOCAL_VERIFIED_PUBLICATION_PENDING. The actual comparison and restored
-delivery are verified; remote publication is pending. The primary agent owns
-the semantic and evidence review; no final review was delegated.
+Status: COMPLETE_GIT_FALLBACK. The actual comparison, restored delivery and
+remote Git publication are verified. PR/Release creation failed401 and the
+specified fallback was completed. The primary agent owns the semantic and
+evidence review; no final review was delegated.
 
 ## Authoritative Scope
 
@@ -23,7 +24,7 @@ Run: `prism-v2-20260928-54f76420f1a45b76`.
 
 | ZIP section | Requirement and direct evidence | State |
 | --- | --- | --- |
-| 0 | Runnable fixed A/B/C comparison;12 real cells, actual reports and verified restoration; remote delivery remains pending | LOCAL_VERIFIED_PUBLICATION_PENDING |
+| 0 | Runnable fixed A/B/C comparison;12 real cells, actual reports, verified restoration and actual remote Git delivery | VERIFIED |
 | 1 | Fixed V2/Prism source identities, required function mapping and MIT source attribution in SOURCE_AUDIT.md; independent linked worktree verified | VERIFIED |
 | 2 | A/B share original F0 factors/scores/classification/train bins; C is A's four-cap budget control; native reference is provenance-only | VERIFIED_SOURCE_AND_FIXTURES |
 | 3.1 | Explicit existing venv; no environment upgrade or bare Conda python; plotting dependencies isolated | VERIFIED |
@@ -45,8 +46,8 @@ Run: `prism-v2-20260928-54f76420f1a45b76`.
 | 9.4 | Actual673974 test roster/40340 candidates/net-edge pass0/orders0; independent historical-risk block;40230 adjusted labels explicitly not account returns; undefined metrics null | VERIFIED |
 | 10 | Every T0-T5 module and five stage commands plus strict --all are implemented; parameter consumers in PARAMETER_AUDIT.md | VERIFIED_SOURCE_AND_CLI_FIXTURES |
 | 11 | All10 directed families below; related regression236 tests/113.988s/exit0 before formal test; tests are not profit evidence | VERIFIED_TESTS |
-| 12 | All named root/per-cell files;161 manifest-record hashes checked,162 archive files restored; required handoff subjects/commands/logs and exact train-model evidence retained | VERIFIED_LOCAL_DELIVERY |
-| 13 | Explicit source/result whitelist,7 <=40MiB parts restored; actual PR/Release POST401 recorded; Git fallback push and remote/file receipt pending | PENDING_PUBLICATION |
+| 12 | All named root/per-cell files;161 manifest-record hashes checked,162 archive files restored; handoff/commands/logs/train model delivered; large details all ARCHIVED_GIT | VERIFIED |
+| 13 |83 actual changed files size/SHA/Git-blob verified against pushed/fetched be0f851;7 <=40MiB parts restored; PR/Release POST401 recorded, Git fallback completed | VERIFIED_GIT_FALLBACK |
 | 14 | Insufficient-history NOT_RUN/null path tested; actual data sufficient; unknown risk/actions do not trigger fake fills or threshold relaxation | VERIFIED_SOURCE_AND_FIXTURES |
 | 15 | Fixed source/license and dated official rule evidence linked in SOURCE_AUDIT.md and bound parameters; no 2026 rules applied before effectiveness | VERIFIED_SOURCE |
 
@@ -87,6 +88,9 @@ in the source; the regression receipt contains the command, code hash and count.
   matches the frozen dataset; `TRAIN_FIT_EVIDENCE.json` records strict purge.
 - `GITHUB_API_ATTEMPTS.json`: actual PR/Release POSTs each failed401
   Requires authentication; prescribed Git fallback selected, no invented URLs.
+- `GIT_DELIVERY_EVIDENCE.json`: actual non-force push, matching ls-remote/fetch
+  commitbe0f851,83 changed-file size/SHA256/Git-object bindings including all
+  seven parts. Source410de2d is separate from later result/document delivery.
 - `DELIVERY_VERIFICATION.json`: fresh pre-delivery related regression236 tests/
   114.360s/exit0, same implementation; original pre-test artifact receipt retained.
 - `HANDOFF.md`: actual A/B/C table, differences, dates/scope/old exposure,
@@ -100,5 +104,15 @@ locations and five commands/--all have fixture and actual pipeline evidence;
 every active parameter has a consumer in PARAMETER_AUDIT.md, and native/source
 identity values are explicitly provenance-only where appropriate.
 
-Only publication remains pending: non-force whitelist push, fresh remote HEAD
-comparison and the external local publish_receipt.json with actual file hashes.
+Actual initial delivery commit:
+`be0f85117f8daf92438edfd4053045ecc9975499`. Subsequent completion-document
+changes do not alter frozen source/data/config/results. The external local
+`cache/experiments/prism_v2/frozen-20260928-v1/publish_receipt.json` records the
+final delivery commit, matching remote HEAD and actual uploaded files with
+bytes/SHA256, without a self-referencing committed hash.
+
+No required derived assets are LOCAL_ONLY: all162 archive files are delivered.
+Private raw vendor snapshot, shared feature cache, local restored copy, lock
+and credentials remain LOCAL_ONLY by design. The production branch is still
+0809f0e, its existing latest.json change is preserved, and no merge, force push,
+production publication, paid Jev call, resync or policy activation was performed.

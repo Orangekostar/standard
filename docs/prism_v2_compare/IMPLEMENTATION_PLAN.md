@@ -160,8 +160,14 @@ completion audit and local publish receipt; `core/pipeline/prism_compare_deliver
 - [x] Primary review every ZIP section, numbered test family, parameter, invariant,
   named artifact, command, figure and delivery requirement against current evidence.
   COMPLETION_AUDIT records sections0-15, all10 families and direct actual evidence;
-  publication state is separately pending. Archive restore verified162 files/7parts.
-- [ ] Upload explicit code/result whitelist and derived <=40MiB packages; try Release
+  archive restore verified162 files/7parts; publication verified separately below.
+- [x] Upload explicit code/result whitelist and derived <=40MiB packages; try Release
   and PR with actual available authorization; record precise failure/local-only scope.
-- [ ] Verify remote branch HEAD and local publish receipt file sizes/SHA; final reply
-  includes actual A/B/C test table, verdict/limits/tests and real GitHub/result links.
+  Actual PR/Release POSTs each401; Git fallback pushed be0f851, including all7parts,
+  core reports/CSV/JSON/PNG, logs and model evidence. No required detail omitted.
+- [x] Verify remote branch HEAD and local publish receipt file sizes/SHA.
+  Fresh ls-remote/fetch both be0f851;83 changed files bound to Git blobs and
+  local size/SHA256. GIT_DELIVERY_EVIDENCE retains the initial result receipt;
+  the external publish_receipt is refreshed for the final completion-doc commit.
+  Final reply presents actual A/B/C table, insufficient verdict/data limits,
+  236 passed tests, source/delivery identity and actual branch/report links.
