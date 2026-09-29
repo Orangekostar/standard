@@ -1,0 +1,24 @@
+{
+  "screen": {
+    "attempted": 216,
+    "elapsed_seconds": 183.32278067001607,
+    "failed": 0,
+    "failures": [],
+    "phase": "screen",
+    "reused": 0,
+    "success": 216
+  },
+  "review": {
+    "attempted": 36,
+    "elapsed_seconds": 58.65734128805343,
+    "failed": 0,
+    "failures": [],
+    "phase": "review",
+    "reused": 0,
+    "success": 36
+  },
+  "elapsed_from_protocol_freeze_seconds": 510.0885076522827,
+  "accounts_newly_replayed": 252,
+  "smoke_accounts_separate": 36,
+  "selection_freeze_written_before_review": true
+}

@@ -1,0 +1,64 @@
+test_flat_candle_and_cross_section_minimum (tests.v2.test_high_win_features.HighWinFeatureTests.test_flat_candle_and_cross_section_minimum) ... ok
+test_missing_session_not_filled_and_future_invariance (tests.v2.test_high_win_features.HighWinFeatureTests.test_missing_session_not_filled_and_future_invariance) ... ok
+test_sector_membership_change_uses_current_sector_history (tests.v2.test_high_win_features.HighWinFeatureTests.test_sector_membership_change_uses_current_sector_history) ... ok
+test_volume_endpoints_and_volatility (tests.v2.test_high_win_features.HighWinFeatureTests.test_volume_endpoints_and_volatility) ... ok
+test_all_families_positive_and_single_required_condition_negative (tests.v2.test_high_win_signals.HighWinSignalTests.test_all_families_positive_and_single_required_condition_negative) ... ok
+test_future_appends_do_not_change_prior_signals_or_anchors (tests.v2.test_high_win_signals.HighWinSignalTests.test_future_appends_do_not_change_prior_signals_or_anchors) ... ok
+test_missing_consolidation_bar_cannot_be_skipped (tests.v2.test_high_win_signals.HighWinSignalTests.test_missing_consolidation_bar_cannot_be_skipped) ... ok
+test_recent_breakout_anchor_not_best_older_anchor (tests.v2.test_high_win_signals.HighWinSignalTests.test_recent_breakout_anchor_not_best_older_anchor) ... ok
+test_signal_day_raw_price_and_real_estate_bans (tests.v2.test_high_win_signals.HighWinSignalTests.test_signal_day_raw_price_and_real_estate_bans) ... ok
+test_strict_subset_and_new_signals_ignore_old_factor_gate (tests.v2.test_high_win_signals.HighWinSignalTests.test_strict_subset_and_new_signals_ignore_old_factor_gate) ... ok
+test_all_eight_candidates_checked_and_no_prediction_gate_for_new_rules (tests.v2.test_high_win_replay.HighWinReplayTests.test_all_eight_candidates_checked_and_no_prediction_gate_for_new_rules) ... ok
+test_current_close_high_and_amount_cannot_change_current_open_fill (tests.v2.test_high_win_replay.HighWinReplayTests.test_current_close_high_and_amount_cannot_change_current_open_fill) ... ok
+test_entry_close_stop_sells_next_day_at_actual_gap_not_stop_price (tests.v2.test_high_win_replay.HighWinReplayTests.test_entry_close_stop_sells_next_day_at_actual_gap_not_stop_price) ... ok
+test_expiry_before_profit_and_all_reasons_logged (tests.v2.test_high_win_replay.HighWinReplayTests.test_expiry_before_profit_and_all_reasons_logged) ... ok
+test_failed_open_consumes_anchor_and_price_boundary_is_raw (tests.v2.test_high_win_replay.HighWinReplayTests.test_failed_open_consumes_anchor_and_price_boundary_is_raw) ... ok
+test_no_bug_native_control_fills_and_nav_match_exactly (tests.v2.test_high_win_replay.HighWinReplayTests.test_no_bug_native_control_fills_and_nav_match_exactly) ... ok
+test_pending_losing_exit_does_not_free_slot (tests.v2.test_high_win_replay.HighWinReplayTests.test_pending_losing_exit_does_not_free_slot) ... ok
+test_same_candidate_correction_applies_to_native_controls (tests.v2.test_high_win_replay.HighWinReplayTests.test_same_candidate_correction_applies_to_native_controls) ... ok
+test_tail_boundary_and_continuous_midpoint (tests.v2.test_high_win_replay.HighWinReplayTests.test_tail_boundary_and_continuous_midpoint) ... ok
+test_closed_episode_statistics_use_economic_lots (tests.v2.test_high_win_metrics.EpisodeStatisticsTests.test_closed_episode_statistics_use_economic_lots) ... ok
+test_duplicate_lot_and_overlapping_same_code_episodes_are_rejected (tests.v2.test_high_win_metrics.EpisodeStatisticsTests.test_duplicate_lot_and_overlapping_same_code_episodes_are_rejected) ... ok
+test_empty_and_all_positive_episodes_keep_undefined_metrics_explicit (tests.v2.test_high_win_metrics.EpisodeStatisticsTests.test_empty_and_all_positive_episodes_keep_undefined_metrics_explicit) ... ok
+test_cash_only_nav_has_flat_days_and_undefined_sharpe (tests.v2.test_high_win_metrics.NavStatisticsTests.test_cash_only_nav_has_flat_days_and_undefined_sharpe) ... ok
+test_nav_return_drawdown_and_incomplete_status (tests.v2.test_high_win_metrics.NavStatisticsTests.test_nav_return_drawdown_and_incomplete_status) ... ok
+test_choose_primary_ignores_controls_and_uses_frozen_sort_keys (tests.v2.test_high_win_metrics.PrimarySelectionTests.test_choose_primary_ignores_controls_and_uses_frozen_sort_keys) ... ok
+test_choose_primary_returns_none_when_no_s_candidate_qualifies (tests.v2.test_high_win_metrics.PrimarySelectionTests.test_choose_primary_returns_none_when_no_s_candidate_qualifies) ... ok
+test_review_requires_samples_dates_wilson_and_return_above_base (tests.v2.test_high_win_metrics.ReviewQualificationTests.test_review_requires_samples_dates_wilson_and_return_above_base) ... ok
+test_exact_twelve_cells_pool_episodes_and_zero_return_windows (tests.v2.test_high_win_metrics.SelectionSummaryTests.test_exact_twelve_cells_pool_episodes_and_zero_return_windows) ... ok
+test_selection_rejects_pooled_sub65_rate_and_open_positions (tests.v2.test_high_win_metrics.SelectionSummaryTests.test_selection_rejects_pooled_sub65_rate_and_open_positions) ... ok
+test_selection_requires_six_early_windows_and_two_costs (tests.v2.test_high_win_metrics.SelectionSummaryTests.test_selection_requires_six_early_windows_and_two_costs) ... ok
+test_wilson_interval_and_invalid_counts (tests.v2.test_high_win_metrics.WilsonTests.test_wilson_interval_and_invalid_counts) ... ok
+test_config_fixed_and_cli_stages (tests.v2.test_high_win_pipeline.HighWinPipelineTests.test_config_fixed_and_cli_stages) ... ok
+test_freeze_reads_only_early_and_is_immutable (tests.v2.test_high_win_pipeline.HighWinPipelineTests.test_freeze_reads_only_early_and_is_immutable) ... {"event": "selection_frozen", "primary_policy_id": "S01_CONFIRMED", "selected_policy_ids": ["S01_CONFIRMED", "S01_STRICT", "S02_CONFIRMED"], "qualified_count": 16, "verdict": "EARLY_QUALIFIED"}
+{"event": "selection_frozen", "primary_policy_id": "S01_CONFIRMED", "selected_policy_ids": ["S01_CONFIRMED", "S01_STRICT", "S02_CONFIRMED"], "qualified_count": 16, "verdict": "EARLY_QUALIFIED"}
+ok
+test_serial_spawn_account_financials_and_verified_reuse (tests.v2.test_high_win_pipeline.HighWinPipelineTests.test_serial_spawn_account_financials_and_verified_reuse) ... {"event": "account_complete", "completed": 1, "total": 4, "reused": false, "key": "S02_CONFIRMED/selection_1/base"}
+{"event": "account_complete", "completed": 2, "total": 4, "reused": false, "key": "S02_CONFIRMED/selection_1/stress"}
+{"event": "account_complete", "completed": 3, "total": 4, "reused": false, "key": "S02_CONFIRMED/selection_2/base"}
+{"event": "account_complete", "completed": 4, "total": 4, "reused": false, "key": "S02_CONFIRMED/selection_2/stress"}
+{"event": "account_complete", "completed": 1, "total": 4, "reused": false, "key": "S02_CONFIRMED/selection_1/base"}
+{"event": "account_complete", "completed": 2, "total": 4, "reused": false, "key": "S02_CONFIRMED/selection_1/stress"}
+{"event": "account_complete", "completed": 3, "total": 4, "reused": false, "key": "S02_CONFIRMED/selection_2/base"}
+{"event": "account_complete", "completed": 4, "total": 4, "reused": false, "key": "S02_CONFIRMED/selection_2/stress"}
+{"event": "account_complete", "completed": 1, "total": 4, "reused": true, "key": "S02_CONFIRMED/selection_1/base"}
+{"event": "account_complete", "completed": 2, "total": 4, "reused": true, "key": "S02_CONFIRMED/selection_1/stress"}
+{"event": "account_complete", "completed": 3, "total": 4, "reused": true, "key": "S02_CONFIRMED/selection_2/base"}
+{"event": "account_complete", "completed": 4, "total": 4, "reused": true, "key": "S02_CONFIRMED/selection_2/stress"}
+{"event": "account_complete", "completed": 1, "total": 4, "reused": false, "key": "S02_CONFIRMED/selection_1/base"}
+{"event": "account_complete", "completed": 2, "total": 4, "reused": true, "key": "S02_CONFIRMED/selection_1/stress"}
+{"event": "account_complete", "completed": 3, "total": 4, "reused": true, "key": "S02_CONFIRMED/selection_2/base"}
+{"event": "account_complete", "completed": 4, "total": 4, "reused": true, "key": "S02_CONFIRMED/selection_2/stress"}
+ok
+test_implemented_cash_dividend_is_credited_once (tests.v2.test_rank_rotation.RotationReplayTest.test_implemented_cash_dividend_is_credited_once) ... ok
+test_unlisted_bonus_shares_keep_a_slot_after_parent_is_sold (tests.v2.test_rank_rotation.RotationReplayTest.test_unlisted_bonus_shares_keep_a_slot_after_parent_is_sold) ... ok
+test_end_positions_include_bonus_shares_not_yet_listed (tests.v2.test_rank_rotation.RotationReplayTest.test_end_positions_include_bonus_shares_not_yet_listed) ... ok
+test_same_order_run_twice_creates_one_fill_and_one_cash_effect (tests.v2.test_execution_v2.ExecutionTest.test_same_order_run_twice_creates_one_fill_and_one_cash_effect) ... ok
+test_same_day_buy_is_not_sellable_and_next_session_is (tests.v2.test_execution_v2.ExecutionTest.test_same_day_buy_is_not_sellable_and_next_session_is) ... ok
+test_sell_uses_fifo_cost_and_exact_fee_components (tests.v2.test_execution_v2.ExecutionTest.test_sell_uses_fifo_cost_and_exact_fee_components) ... ok
+test_ex_dividend_scale_does_not_trigger_b_stop_or_split_one_trade_into_two (tests.v2.test_prism_replay.PrismReplayTest.test_ex_dividend_scale_does_not_trigger_b_stop_or_split_one_trade_into_two) ... ok
+
+----------------------------------------------------------------------
+Ran 41 tests in 26.979s
+
+OK

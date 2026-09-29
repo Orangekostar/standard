@@ -1,0 +1,20 @@
+{
+  "status": "PASS",
+  "accounts": 252,
+  "fills": 5040,
+  "episodes": 2520,
+  "verified": [
+    "artifact_hashes",
+    "independent_fee_rounding",
+    "raw_open_tick_slippage",
+    "cash_and_NAV",
+    "T_PLUS_1",
+    "slot_cash_ADV_budget",
+    "raw_5_yuan_and_sector_bans",
+    "next_open_and_tail",
+    "episode_PNL",
+    "aggregate_wins",
+    "flat_reconciliation"
+  ],
+  "corporate_actions": "ZERO_IN_THIS_FROZEN_SOURCE_SEPARATE_REGRESSIONS_COVER_ACTIONS"
+}

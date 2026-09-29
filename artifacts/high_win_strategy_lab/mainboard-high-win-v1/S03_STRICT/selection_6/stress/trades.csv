@@ -1,0 +1,2 @@
+lot_id,code,status,entry_date,closed_at,realized_pnl_cents,entry_quantity,entry_cost_cents,sector_id,entry_regime,exit_reason,confirmed_cash_dividend_cents,member_lot_ids,holding_sessions,net_episode_return
+5843427cf313a6a8f5705c0f4fabdfe889d353f9549097570149bdd63792c76c,002350.SZ,CLOSED,20251226,20251231,-550070,19700,16612248,801730.SI,,SEARCH_STOP_LOSS,0,"[""5843427cf313a6a8f5705c0f4fabdfe889d353f9549097570149bdd63792c76c""]",3,-0.03311231568418675

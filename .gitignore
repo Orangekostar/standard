@@ -23,3 +23,10 @@ nohup.out
 909.txt
 jump_rope_compare.png
 *.docx
+
+# High-win laboratory: provider-derived caches and local account databases stay local.
+artifacts/high_win_strategy_lab/*/derived_cache/
+artifacts/high_win_strategy_lab/*/failed_attempts/
+artifacts/high_win_strategy_lab/smoke*/
+artifacts/high_win_strategy_lab/*/*/*/*/account.db
+artifacts/high_win_strategy_lab/*/.compare.lock

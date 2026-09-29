@@ -1,0 +1,3 @@
+lot_id,code,status,entry_date,closed_at,realized_pnl_cents,entry_quantity,entry_cost_cents,sector_id,entry_regime,exit_reason,confirmed_cash_dividend_cents,member_lot_ids,holding_sessions,net_episode_return
+5ee41d90080a15433e315ba865e32a784deae26cf28ab9bd852acd8a2ea5820f,600718.SH,CLOSED,20240924,20240930,1542572,18600,16577738,801750.SI,,SEARCH_TAKE_PROFIT,0,"[""5ee41d90080a15433e315ba865e32a784deae26cf28ab9bd852acd8a2ea5820f""]",4,0.09305081308439064
+75318d4fbbacbccea115d2ec5c7af91f51fdd90e09c008e43835c62ea86d6647,603727.SH,CLOSED,20241108,20241115,-1206489,27200,33792873,801960.SI,,SEARCH_STOP_LOSS,0,"[""75318d4fbbacbccea115d2ec5c7af91f51fdd90e09c008e43835c62ea86d6647""]",5,-0.03570246897918387

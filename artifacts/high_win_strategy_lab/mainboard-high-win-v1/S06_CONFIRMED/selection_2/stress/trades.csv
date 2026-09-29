@@ -1,0 +1,2 @@
+lot_id,code,status,entry_date,closed_at,realized_pnl_cents,entry_quantity,entry_cost_cents,sector_id,entry_regime,exit_reason,confirmed_cash_dividend_cents,member_lot_ids,holding_sessions,net_episode_return
+30ce23de71bd5c2256cd62ee1e8813e37d12d6bcaef9121cd86d9d950e5b088c,601577.SH,CLOSED,20250121,20250205,576136,18600,16596343,801780.SI,,SEARCH_MAX_HOLDING,0,"[""30ce23de71bd5c2256cd62ee1e8813e37d12d6bcaef9121cd86d9d950e5b088c""]",5,0.03471463562786091

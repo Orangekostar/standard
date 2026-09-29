@@ -1,0 +1,15 @@
+{
+  "status": "PASS",
+  "reused_accounts": 252,
+  "failed_accounts": 0,
+  "new_orders_on_reuse": 0,
+  "selection_freeze_sha256": "c58d3caed06a669de1a92819e7271df64a8f324630997daf7543599849117688",
+  "actual_account_replays": {
+    "formal": 252,
+    "smoke": 36
+  },
+  "current_candidates": 16,
+  "controls": 2,
+  "prior_search_attempt_count": "UNKNOWN_SEE_PREVIOUS_RUNS_INDEX",
+  "production_activation": false
+}

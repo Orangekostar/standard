@@ -1,0 +1,2 @@
+lot_id,code,status,entry_date,closed_at,realized_pnl_cents,entry_quantity,entry_cost_cents,sector_id,entry_regime,exit_reason,confirmed_cash_dividend_cents,member_lot_ids,holding_sessions,net_episode_return
+c1ddc7c4d6a13670785bfe88127fe240f8f65ba2d75156ada7d4c647557a5ea0,600348.SH,CLOSED,20260225,20260302,828354,17300,16665065,801950.SI,,SEARCH_TAKE_PROFIT,0,"[""c1ddc7c4d6a13670785bfe88127fe240f8f65ba2d75156ada7d4c647557a5ea0""]",3,0.0497060167482095

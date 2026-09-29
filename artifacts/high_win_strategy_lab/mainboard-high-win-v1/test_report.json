@@ -1,0 +1,46 @@
+{
+  "status": "PASS",
+  "directed_and_regression_tests": 41,
+  "elapsed_seconds": 26.979,
+  "log": "directed_tests.log",
+  "log_sha256": "d0e5657fa168e63198db0422da51d326b756d8a9fd489c50519bd8213ce21bd3",
+  "test_sources": {
+    "tests/v2/test_high_win_features.py": "4fed8b038de517294ec8953e9c16ec96c1e7ff378b7aa21cc35667b0f900ab2d",
+    "tests/v2/test_high_win_metrics.py": "1cd4a73e321d0a4923db6b7ed29a5d211b6becb27be1e667b8349f6fe7871ca6",
+    "tests/v2/test_high_win_pipeline.py": "07aa9162900ec8e992e06bb9b60e45f1803c4f44ba99a029899b514d3083e5f1",
+    "tests/v2/test_high_win_replay.py": "0c16f7e0abe1829b66b5866e2944d24949bb3be25be5270c9548156852a9642e",
+    "tests/v2/test_high_win_signals.py": "e91212360c9a9fa260a7973458a1d0bdb82f73350f9fb7cd5da86115b56c9826",
+    "tests/v2/test_high_win_reporting.py": "ec385cbde8dbbd24ab4b3e0ae6b310c198d3f20a379e181a5b5478da38becde0"
+  },
+  "smoke": {
+    "stocks": 30,
+    "max_input_sessions": 160,
+    "accounts": 36,
+    "failed": 0,
+    "output": "../smoke-v1",
+    "used_for_selection": false
+  },
+  "categories": [
+    "eight_families_positive_negative_and_strict_subset",
+    "future_invariance_and_window_endpoints",
+    "as_of_sector_membership_and_missing_calendar",
+    "raw_price_vs_comparison_and_corporate_actions",
+    "T_plus_1_close_trigger_and_real_gap",
+    "cash_slots_top6_once_only_and_fees",
+    "economic_episode_zero_and_unresolved_NAV",
+    "early_only_freeze_and_continuous_day66",
+    "spawn_parity_and_per_cell_recovery"
+  ],
+  "additional_reporting_test": {
+    "status": "PASS",
+    "count": 1,
+    "elapsed_seconds": 0.31,
+    "command": "/home/ww/vv/quant/.venv/bin/python -m unittest tests.v2.test_high_win_reporting -v",
+    "checks": [
+      "1000_synchronous_date_blocks",
+      "same_date_episode_clusters",
+      "seed_reproducibility"
+    ]
+  },
+  "total_directed_and_regression_tests": 42
+}

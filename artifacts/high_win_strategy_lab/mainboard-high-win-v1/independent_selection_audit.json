@@ -1,0 +1,9 @@
+{
+  "status": "PASS",
+  "early_accounts": 216,
+  "policies": 18,
+  "independently_qualified_new_policies": 0,
+  "primary_policy_id": null,
+  "selection_freeze_sha256": "c58d3caed06a669de1a92819e7271df64a8f324630997daf7543599849117688",
+  "method": "RECOMPUTE_FROM_EPISODES_ALL_NUMERIC_GATES_AND_EARLY_ONLY_RANKING"
+}
