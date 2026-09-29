@@ -1,0 +1,12 @@
+{
+  "at": "2026-09-29T14:40:20.156860+00:00",
+  "http_status": 401,
+  "reused_existing": false,
+  "authenticated": false,
+  "created_or_found": false,
+  "number": null,
+  "url": null,
+  "message": "Requires authentication",
+  "documentation_url": "https://docs.github.com/rest",
+  "errors": null
+}

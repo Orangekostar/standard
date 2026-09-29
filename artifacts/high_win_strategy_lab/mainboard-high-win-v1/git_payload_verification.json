@@ -1,0 +1,10 @@
+{
+  "status": "PASS",
+  "payload_commit": "dc8161d78943d6ba96fd8fa98b1a073b8fcc6903",
+  "verified_remote_commit": "dc8161d78943d6ba96fd8fa98b1a073b8fcc6903",
+  "git_objects_verified": 3397,
+  "result_files_verified": 3306,
+  "implementation_source_files_verified": 91,
+  "method": "LOCAL_GIT_BLOB_SHA256_PLUS_FRESH_LS_REMOTE_EQUALITY",
+  "not_claimed": "INDEPENDENT_HTTP_DOWNLOAD_OF_EVERY_REMOTE_BLOB"
+}

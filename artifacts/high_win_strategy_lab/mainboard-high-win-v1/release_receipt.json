@@ -1,0 +1,87 @@
+{
+  "schema_version": "high-win-release-receipt.v1",
+  "status": "PUBLISHED_PR_API_DENIED_RECORDED",
+  "at": "2026-09-29T14:41:46.396281+00:00",
+  "repository": "Orangekostar/standard",
+  "branch": "research/mainboard-high-win-v1",
+  "payload_commit": "dc8161d78943d6ba96fd8fa98b1a073b8fcc6903",
+  "verified_remote_payload_commit": "dc8161d78943d6ba96fd8fa98b1a073b8fcc6903",
+  "source_base_commit": "3df7170a6a492097461ebbd9fafb2f450c0c4f5d",
+  "binding": {
+    "dataset_sha256": "4396426ff714e24324994f24acb651707d4238c08948388ff6457344201d4375",
+    "feature_identity": "fad9c628a98b5ce39e2a987d32bc67a3c26ae874c0e485a3a74db4e2b1abe62a",
+    "implementation_sha256": "d2965109b4d2e39d4678fdbf425ba51a4044145fc232bd595971fead134c15aa",
+    "protocol_sha256": "84ea8f416eacb272e094c67c3a84256132dabcf1b7575c569fee2cf62a7617c7",
+    "smoke": false,
+    "snapshot_sha256": "2e2598e9e115d3110f3031a710d1997e74ee374c51db73a4cef99939054ff820"
+  },
+  "elapsed_from_protocol_freeze_seconds": 510.0885076522827,
+  "accounts": {
+    "formal_success": 252,
+    "formal_failure": 0,
+    "verified_reused": 252,
+    "smoke_success": 36,
+    "smoke_failure": 0,
+    "actual_replays_including_smoke": 288,
+    "scheduled_jobs_including_verification_and_smoke": 540
+  },
+  "search": {
+    "new_candidates": 16,
+    "fixed_controls": 2,
+    "early_accounts": 216,
+    "continuous_review_accounts": 36,
+    "additional_parameter_searches": 0,
+    "prior_attempts": "UNKNOWN_SEE_22_INDEXED_PREVIOUS_ARTIFACTS"
+  },
+  "verification": {
+    "tests": 42,
+    "independent_account_audit": {
+      "status": "PASS",
+      "accounts": 252,
+      "fills": 5040,
+      "episodes": 2520,
+      "verified": [
+        "artifact_hashes",
+        "independent_fee_rounding",
+        "raw_open_tick_slippage",
+        "cash_and_NAV",
+        "T_PLUS_1",
+        "slot_cash_ADV_budget",
+        "raw_5_yuan_and_sector_bans",
+        "next_open_and_tail",
+        "episode_PNL",
+        "aggregate_wins",
+        "flat_reconciliation"
+      ],
+      "corporate_actions": "ZERO_IN_THIS_FROZEN_SOURCE_SEPARATE_REGRESSIONS_COVER_ACTIONS"
+    },
+    "independent_selection_audit": {
+      "status": "PASS",
+      "early_accounts": 216,
+      "policies": 18,
+      "independently_qualified_new_policies": 0,
+      "primary_policy_id": null,
+      "selection_freeze_sha256": "c58d3caed06a669de1a92819e7271df64a8f324630997daf7543599849117688",
+      "method": "RECOMPUTE_FROM_EPISODES_ALL_NUMERIC_GATES_AND_EARLY_ONLY_RANKING"
+    },
+    "git_objects_verified": 3397
+  },
+  "verdict": "NO_HIGH_WIN_CANDIDATE",
+  "primary_policy_id": null,
+  "pr": {
+    "at": "2026-09-29T14:40:20.156860+00:00",
+    "http_status": 401,
+    "reused_existing": false,
+    "authenticated": false,
+    "created_or_found": false,
+    "number": null,
+    "url": null,
+    "message": "Requires authentication",
+    "documentation_url": "https://docs.github.com/rest",
+    "errors": null
+  },
+  "production_activation": false,
+  "main_branch_merged": false,
+  "publication_scope": "DERIVED_ACCOUNT_CSV_METRICS_REPORTS_CODE_TESTS_ONLY_NO_VENDOR_DATABASE_OR_FEATURE_CACHE",
+  "receipt_self_reference_policy": "PAYLOAD_SHA_BINDS_CODE_AND_RESULTS; DELIVERY_METADATA_IS_COMMITTED_AFTER_PAYLOAD. FINAL_REMOTE_HEAD_RECEIPT_IS_LOCAL_CACHE_TO_AVOID_SELF_REFERENTIAL_SHA."
+}
