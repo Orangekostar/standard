@@ -6,7 +6,7 @@ from typing import Any
 
 import pandas as pd
 
-from core.data.symbols import is_risk_warning_name, normalize_ts_code
+from core.data.symbols import is_buyable_mainboard_ts_code, is_risk_warning_name, normalize_ts_code
 
 
 @dataclass(frozen=True)
@@ -54,7 +54,10 @@ def classify_instrument(row: Mapping[str, Any], as_of: str) -> InstrumentClassif
         board = "CHINEXT"
 
     is_b_share = number.startswith("900") or (suffix == "SZ" and number.startswith("200")) or "b share" in market or "b股" in market
-    analysis_eligible = stock_type and suffix in {"SH", "SZ"} and board is not None and not is_b_share
+    analysis_eligible = (
+        stock_type and board in {"MAIN_SH", "MAIN_SZ"}
+        and is_buyable_mainboard_ts_code(code) and not is_b_share
+    )
     reason = "ELIGIBLE" if analysis_eligible else "OUTSIDE_ANALYSIS_UNIVERSE"
 
     as_of_date = _compact_date(as_of)
@@ -67,10 +70,17 @@ def classify_instrument(row: Mapping[str, Any], as_of: str) -> InstrumentClassif
         analysis_eligible = False
         reason = "DELISTED_BEFORE_AS_OF"
 
+    risk_warning = (
+        is_risk_warning_name(str(row.get("name") or ""))
+        or str(row.get("is_risk_warning")).strip().lower() in {"true", "1", "1.0"}
+    )
+    if risk_warning and analysis_eligible:
+        analysis_eligible = False
+        reason = "RISK_WARNING"
     blockers: list[str] = []
     if not analysis_eligible:
         blockers.append(reason)
-    if is_risk_warning_name(str(row.get("name") or "")):
+    if risk_warning and "RISK_WARNING" not in blockers:
         blockers.append("RISK_WARNING")
     trade_eligible = analysis_eligible and not blockers
     return InstrumentClassification(

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
+from core.data.symbols import is_buyable_mainboard_ts_code, is_risk_warning_name
 from core.data.v2_store import V2Store
 from core.technical_v2.contracts import ContractError, canonical_json
 
@@ -265,6 +266,13 @@ def allocate_orders(
             statuses.append({"code": code, "status": "PLANNED" if not reasons else "BLOCKED", "reason_codes": tuple(reasons)})
             continue
 
+        if not is_buyable_mainboard_ts_code(code):
+            reasons.append("OUTSIDE_TRADING_UNIVERSE")
+        if (
+            is_risk_warning_name(str(candidate.get("name") or ""))
+            or str(candidate.get("is_risk_warning")).strip().lower() in {"true", "1", "1.0"}
+        ):
+            reasons.append("RISK_WARNING")
         if str(candidate.get("prediction_status")) != "OK" or not bool(candidate.get("trade_eligible")):
             reasons.append("NOT_TRADE_ELIGIBLE")
         edge = _decimal(candidate.get("expected_net_edge"))
@@ -487,6 +495,9 @@ def _execute_one(
             )
         if existing_status.startswith("EXPIRED") or existing_status in {"RULE_METADATA_MISSING", "REJECTED"}:
             return _terminal_result(order, existing_status)
+        if order.side == "BUY" and not is_buyable_mainboard_ts_code(order.code):
+            _set_order_status(conn, order.order_id, "EXPIRED_UNIVERSE", ("OUTSIDE_TRADING_UNIVERSE",))
+            return _terminal_result(order, "EXPIRED_UNIVERSE", "OUTSIDE_TRADING_UNIVERSE")
         if order.side == "BUY" and block_buy:
             _set_order_status(conn, order.order_id, "EXPIRED_PENDING_EXIT", ("SAME_SESSION_EXIT_PRIORITY",))
             return _terminal_result(order, "EXPIRED_PENDING_EXIT", "SAME_SESSION_EXIT_PRIORITY")
@@ -501,6 +512,26 @@ def _execute_one(
         if order.side == "BUY" and trade_date > _date(order.earliest_trade_date):
             _set_order_status(conn, order.order_id, "EXPIRED_VALIDITY", ("NEXT_SESSION_BUY_EXPIRED",))
             return _terminal_result(order, "EXPIRED_VALIDITY", "NEXT_SESSION_BUY_EXPIRED")
+        if order.side == "BUY":
+            instrument = conn.execute(
+                """SELECT name FROM instrument_versions
+                   WHERE code=? AND valid_from<=? AND (valid_to IS NULL OR valid_to='' OR valid_to>=?)
+                     AND substr(replace(observed_at, '-', ''), 1, 8)<=?
+                   ORDER BY observed_at DESC, source_version DESC LIMIT 1""",
+                (order.code, trade_date, trade_date, trade_date),
+            ).fetchone()
+            risk = conn.execute(
+                """SELECT is_risk_warning FROM trading_status
+                   WHERE code=? AND date=? AND is_risk_warning IS NOT NULL
+                   ORDER BY retrieved_at DESC, source_version DESC LIMIT 1""",
+                (order.code, trade_date),
+            ).fetchone()
+            if (
+                instrument is not None and is_risk_warning_name(instrument["name"])
+                or risk is not None and risk["is_risk_warning"] == 1
+            ):
+                _set_order_status(conn, order.order_id, "EXPIRED_RISK_WARNING", ("RISK_WARNING",))
+                return _terminal_result(order, "EXPIRED_RISK_WARNING", "RISK_WARNING")
         if rule is None or not rule.applies(trade_date):
             status = "PENDING_EXIT_RULE_UNKNOWN" if order.side == "SELL" else "RULE_METADATA_MISSING"
             _set_order_status(conn, order.order_id, status, ("SECURITY_RULE_MISSING",))

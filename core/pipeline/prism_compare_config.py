@@ -12,7 +12,7 @@ from core.strategies.formula_v2 import BASE_WEIGHTS, FACTOR_GROUPS, SCORE_BIN_ED
 from core.technical_v2.contracts import ContractError, canonical_json, json_safe, sha256_json
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONFIG = REPOSITORY_ROOT / "configs/prism_v2_compare_v1.json"
+DEFAULT_CONFIG = REPOSITORY_ROOT / "configs/prism_v2_compare_mainboard_v2.json"
 STRATEGIES = ("A0_V2_F0", "B0_PRISM_A_SHARE_V1", "C0_V2_EXPOSURE_CONTROL")
 
 
@@ -41,7 +41,7 @@ def load_config(path: str | Path = DEFAULT_CONFIG) -> dict[str, Any]:
             "prism_commit": "d15c63ef7a5d426ad71f4bbf4dae05c94ba0bc02"}),
         (config["network"], {"keep_existing_jev_code": True}),
         (config["data"], {"mode": "real", "snapshot": "sqlite_online_backup",
-            "universe": "available_historical_SSE_SZSE_A_shares",
+            "universe": "available_historical_SSE_SZSE_MAIN_BOARD_A_shares",
             "as_of": "latest_audited_complete_session_in_frozen_snapshot",
             "missing_day_features": "NaN_not_forward_filled", "feature_cache_format": "parquet",
             "shared_comparison_price": "raw_times_contemporaneous_adj_factor",

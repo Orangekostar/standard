@@ -1,0 +1,415 @@
+{
+  "schema_version": "prism-v2-comparison-plan.v1",
+  "experiment_id": "prism-v2-mainboard-ab-v2",
+  "origin": "RESEARCH_ADAPTATION_NOT_PRISM_OFFICIAL_A_SHARE_STRATEGY",
+  "source": {
+    "repository": "Orangekostar/standard",
+    "branch": "codex/technical-v2",
+    "commit": "0809f0ef38e2e776cc80b231d3e188edcddf3173",
+    "prism_repository": "irfndi/prism-liquidity-agent",
+    "prism_commit": "d15c63ef7a5d426ad71f4bbf4dae05c94ba0bc02",
+    "output_branch": "fix/mainboard-only-universe"
+  },
+  "network": {
+    "paid_calls": false,
+    "jev_in_primary_comparison": false,
+    "auto_full_market_resync": false,
+    "keep_existing_jev_code": true
+  },
+  "data": {
+    "mode": "real",
+    "history_sessions_reference": 800,
+    "warmup_sessions": 120,
+    "snapshot": "sqlite_online_backup",
+    "universe": "available_historical_SSE_SZSE_MAIN_BOARD_A_shares",
+    "as_of": "latest_audited_complete_session_in_frozen_snapshot",
+    "missing_day_features": "NaN_not_forward_filled",
+    "corporate_actions_required_for_unqualified_net_pnl_claim": true,
+    "min_context_member_coverage": 0.9,
+    "min_sector_members": 5,
+    "risk_warning_unknown": "BLOCK_NEW_ENTRIES",
+    "feature_chunk_stocks": 100,
+    "feature_cache_format": "parquet",
+    "shared_comparison_price": "raw_times_contemporaneous_adj_factor"
+  },
+  "split": {
+    "counts": {
+      "train": 252,
+      "calibration": 63,
+      "validation": 63,
+      "test": 126
+    },
+    "test_reporting_blocks": [
+      63,
+      63
+    ],
+    "purge": "label_end_date < next_split_first_signal_date",
+    "test_account_continues_across_reporting_blocks": true,
+    "account_reset_between_validation_and_test": true,
+    "final_tail_sessions": 6,
+    "respect_prior_test_exposure": true,
+    "open_comparison_test_once_after_freeze": true,
+    "rewrite_old_final_test_flags": false
+  },
+  "strategies": {
+    "A0_V2_F0": {
+      "formula": "F0_BALANCED",
+      "primary_horizon": 5,
+      "use_common_train_return_bins": true,
+      "price_triggered_exit": false,
+      "score_actions": "reuse_derive_research_intent_with_actual_holdings",
+      "max_planned_holding_sessions": 5
+    },
+    "B0_PRISM_A_SHARE_V1": {
+      "formula": "F0_BALANCED",
+      "primary_horizon": 5,
+      "use_common_train_return_bins": true,
+      "enable_market_state": true,
+      "enable_adaptive_stop": true,
+      "enable_cooldown": true,
+      "market_state": {
+        "efficiency_sessions": 20,
+        "breadth_delta_sessions": 5,
+        "volatility_sessions": 20,
+        "prior_vol_median_sessions": 60,
+        "stress_breadth_below": 0.35,
+        "stress_breadth_delta_at_most": -0.1,
+        "stress_vol_ratio_at_least": 1.5,
+        "trend_er_at_least": 0.35,
+        "trend_log_return20_above": 0,
+        "trend_breadth_delta_at_least": 0,
+        "risk_multiplier": {
+          "STRESS": 0,
+          "TREND_EXPANSION": 1,
+          "RANGE": 0.5,
+          "UNKNOWN": 1
+        },
+        "zero_er_denominator": 0,
+        "incomplete_reference_window": "UNKNOWN"
+      },
+      "adaptive_stop": {
+        "base_atr_multiple": 2.5,
+        "prior_vol_median_sessions": 60,
+        "vol_ratio_clip": [
+          0.5,
+          2
+        ],
+        "distance_fraction_clip": [
+          0.03,
+          0.12
+        ],
+        "missing_reference_k": 2.5,
+        "update_at": "close",
+        "execution": "next_eligible_session_open",
+        "tighten_only": true,
+        "trailing_formula": "highest_close_since_lot_entry - d_fraction_t * close_t",
+        "per_lot": true
+      },
+      "cooldown_full_sessions": 2,
+      "reentry_condition": "entry_index - last_flat_exit_index > 2",
+      "max_planned_holding_sessions": 5,
+      "online_threshold_evolution": false
+    },
+    "C0_V2_EXPOSURE_CONTROL": {
+      "policy": "A0_V2_F0",
+      "lambda_source": "B_validation_mean_exposure / A_validation_mean_exposure",
+      "lambda_clip": [
+        0,
+        1
+      ],
+      "zero_denominator_lambda": 1,
+      "scaled_limits": [
+        "max_stock_weight",
+        "max_sector_weight",
+        "market_gross_caps",
+        "stock_risk_budget"
+      ],
+      "do_not_scale_returns_after_backtest": true,
+      "refit_lambda_in_test": false
+    }
+  },
+  "shared_portfolio": {
+    "initial_capital_cny": 1000000,
+    "max_names": 10,
+    "max_stock_weight": 0.1,
+    "max_sector_weight": 0.25,
+    "market_breadth_breakpoints": [
+      0.35,
+      0.55
+    ],
+    "market_gross_caps": [
+      0,
+      0.3,
+      0.6
+    ],
+    "stock_risk_budget": 0.005,
+    "max_adv_participation": 0.01,
+    "net_edge_min_exclusive": 0.001,
+    "one_day_new_buy_validity": true,
+    "sell_before_buy": true,
+    "do_not_spend_expected_exit_proceeds": true,
+    "block_new_entry_on_pending_exit": true,
+    "block_same_session_sell_and_rebuy": true,
+    "security_rules": "dated_board_specific_rules_not_universal_100_lot",
+    "fixed_atr_multiple": 2.5,
+    "minimum_risk_distance_fraction": 0.03,
+    "buy_ceiling_max_fraction": 0.02,
+    "buy_ceiling_atr_fraction": 0.5,
+    "reduce_quantity_fraction": 0.5,
+    "tick_size_cny": 0.01
+  },
+  "costs": {
+    "basis": "FIXED_RESEARCH_ASSUMPTIONS_NOT_HISTORICAL_BROKER_TARIFF",
+    "commission_each_side": 0.0003,
+    "minimum_commission_cny": 5,
+    "sell_addon_rate": 0.0005,
+    "other_rate_each_side": 0.00001,
+    "slippage_cases": {
+      "base": 0.001,
+      "stress": 0.002
+    },
+    "slippage_accounting": "fill_price_once",
+    "reference_round_trip_cost_base": 0.00312,
+    "reference_round_trip_cost_stress": 0.00512,
+    "quantity_specific_fee_check": true
+  },
+  "evaluation": {
+    "splits": [
+      "validation",
+      "test"
+    ],
+    "cost_cases": [
+      "base",
+      "stress"
+    ],
+    "main_replay_cells": 12,
+    "threshold_search_trials": 0,
+    "min_closed_trades_for_winner": 30,
+    "min_traded_dates_for_winner": 20,
+    "drawdown_tolerance_absolute": 0.02,
+    "return_tie_tolerance": 0.000001,
+    "bootstrap_seed": 20260928,
+    "bootstrap_repetitions": 1000,
+    "bootstrap_block_sessions": 10,
+    "bootstrap_method": "paired_moving_blocks",
+    "annualization_sessions": 252,
+    "risk_free_rate": 0,
+    "always_export_zero_trade_funnel": true
+  },
+  "resources": {
+    "smoke_stocks": 50,
+    "smoke_sessions": 160,
+    "parallel_replays": 2,
+    "max_cpu_threads": 8,
+    "available_ram_fraction": 0.5,
+    "gpu_required": false,
+    "new_business_test_families": 10,
+    "production_worker_changes": false,
+    "production_ui_changes": false
+  },
+  "delivery": {
+    "docs_dir": "docs/prism_v2_compare",
+    "artifact_root": "artifacts/prism_v2_compare",
+    "max_archive_part_mib": 40,
+    "upload_raw_vendor_db": false,
+    "force_push": false,
+    "auto_merge": false,
+    "activate_production_winner": false,
+    "verify_remote_head": true
+  },
+  "security_rule_versions": [
+    {
+      "board": "MAIN_SH",
+      "minimum_quantity": 100,
+      "quantity_increment": 100,
+      "maximum_quantity": 1000000,
+      "effective_from": "20230301",
+      "effective_to": "20260705",
+      "source": "https://edu.sse.com.cn/zcz/document/c/10758658/files/546820356f9d4af48184976b367356b4.pdf",
+      "version": "SSE_2023_MANUAL_P119",
+      "verified": true
+    },
+    {
+      "board": "STAR",
+      "minimum_quantity": 200,
+      "quantity_increment": 1,
+      "maximum_quantity": 100000,
+      "effective_from": "20190301",
+      "effective_to": "20260705",
+      "source": "https://edu.sse.com.cn/tib/qa/c/4866268.shtml",
+      "version": "SSE_STAR_2019",
+      "verified": true
+    },
+    {
+      "board": "MAIN_SH",
+      "minimum_quantity": 100,
+      "quantity_increment": 100,
+      "maximum_quantity": 1000000,
+      "effective_from": "20260706",
+      "effective_to": null,
+      "source": "https://www.sse.com.cn/lawandrules/sselawsrules2025/stocks/exchange/c/c_20260424_10816482.shtml",
+      "version": "SSE_2026_3.3.8",
+      "verified": true
+    },
+    {
+      "board": "STAR",
+      "minimum_quantity": 200,
+      "quantity_increment": 1,
+      "maximum_quantity": 100000,
+      "effective_from": "20260706",
+      "effective_to": null,
+      "source": "https://www.sse.com.cn/lawandrules/sselawsrules2025/stocks/exchange/c/c_20260424_10816482.shtml",
+      "version": "SSE_2026_6.7",
+      "verified": true
+    },
+    {
+      "board": "MAIN_SZ",
+      "minimum_quantity": 100,
+      "quantity_increment": 100,
+      "maximum_quantity": 1000000,
+      "effective_from": "20230410",
+      "effective_to": "20260705",
+      "source": "https://investor.szse.cn/institute/rules/t20230706_601604.html",
+      "version": "SZSE_2023_3.3.8",
+      "verified": true
+    },
+    {
+      "board": "CHINEXT",
+      "minimum_quantity": 100,
+      "quantity_increment": 100,
+      "maximum_quantity": 300000,
+      "effective_from": "20230410",
+      "effective_to": "20260705",
+      "source": "https://investor.szse.cn/institute/rules/t20230706_601604.html",
+      "version": "SZSE_2023_3.3.8",
+      "verified": true
+    },
+    {
+      "board": "MAIN_SZ",
+      "minimum_quantity": 100,
+      "quantity_increment": 100,
+      "maximum_quantity": 1000000,
+      "effective_from": "20260706",
+      "effective_to": null,
+      "source": "https://docs.static.szse.cn/www/lawrules/rule/trade/current/W020260424690713155663.pdf",
+      "version": "SZSE_2026_3.3.8",
+      "verified": true
+    },
+    {
+      "board": "CHINEXT",
+      "minimum_quantity": 100,
+      "quantity_increment": 100,
+      "maximum_quantity": 300000,
+      "effective_from": "20260706",
+      "effective_to": null,
+      "source": "https://docs.static.szse.cn/www/lawrules/rule/trade/current/W020260424690713155663.pdf",
+      "version": "SZSE_2026_3.3.8",
+      "verified": true
+    }
+  ],
+  "native_contract": {
+    "factor_ids": [
+      "F01",
+      "F02",
+      "F03",
+      "F04",
+      "F05",
+      "F06",
+      "F07",
+      "F08",
+      "F09",
+      "F10",
+      "F11",
+      "F12",
+      "F13",
+      "F14",
+      "F15"
+    ],
+    "risk_ids": [
+      "Q01",
+      "Q02",
+      "Q03",
+      "Q04",
+      "Q05",
+      "Q06"
+    ],
+    "horizons": [
+      1,
+      3,
+      5
+    ],
+    "minimum_valid_factors": 12,
+    "nonempty_factor_groups_required": true,
+    "factor_groups": {
+      "T": [
+        "F01",
+        "F02",
+        "F03"
+      ],
+      "R": [
+        "F04",
+        "F05"
+      ],
+      "S": [
+        "F06",
+        "F07",
+        "F08"
+      ],
+      "V": [
+        "F09",
+        "F10",
+        "F11"
+      ],
+      "C": [
+        "F12",
+        "F13",
+        "F14",
+        "F15"
+      ]
+    },
+    "f0_weights": {
+      "1": {
+        "T": 0.2,
+        "R": 0.15,
+        "S": 0.25,
+        "V": 0.25,
+        "C": 0.15
+      },
+      "3": {
+        "T": 0.25,
+        "R": 0.2,
+        "S": 0.2,
+        "V": 0.2,
+        "C": 0.15
+      },
+      "5": {
+        "T": 0.3,
+        "R": 0.2,
+        "S": 0.2,
+        "V": 0.15,
+        "C": 0.15
+      }
+    },
+    "score_up_at_least": 60,
+    "score_down_at_most": 40,
+    "entry_score5_at_least": 65,
+    "entry_score3_at_least": 55,
+    "hold_score5_at_least": 45,
+    "return_bin_edges": [
+      0,
+      20,
+      35,
+      50,
+      65,
+      80,
+      100
+    ],
+    "return_global_min_records": 1000,
+    "return_global_min_dates": 30,
+    "return_bin_min_records": 100,
+    "return_bin_min_dates": 20,
+    "return_shrinkage_records": 100,
+    "target_delta_stock_floor": 0.005,
+    "target_delta_sigma_multiple": 0.25
+  }
+}

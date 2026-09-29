@@ -251,15 +251,20 @@ class CliV2Test(unittest.TestCase):
         self.assertEqual(repeated_payload["publication_id"], payload["publication_id"])
         self.assertEqual(appended_payload["run_id"], payload["run_id"])
         self.assertNotEqual(appended_payload["publication_id"], payload["publication_id"])
-        self.assertEqual(payload["formula_status"], "OK")
-        self.assertEqual(payload["formula_valid_rows"], 21)
-        self.assertEqual(payload["feature_rows"], 6)
+        self.assertEqual(payload["formula_status"], "PARTIAL")
+        self.assertEqual(payload["formula_valid_rows"], 12)
+        self.assertEqual(payload["feature_rows"], 4)
         self.assertEqual(payload["sector_feature_rows"], 1)
-        self.assertEqual(payload["coverage_rows"], 42)
+        self.assertEqual(payload["coverage_rows"], 30)
         self.assertEqual(payload["jev_status"], "NOT_REQUESTED")
         self.assertEqual(appended_payload["jev_status"], "DEMO_ANALYZE_NETWORK_DISABLED")
-        self.assertEqual(len(coverage_rows), 42)
+        self.assertEqual(len(coverage_rows), 30)
         self.assertEqual({row["entity_type"] for row in coverage_rows}, {"stock", "sector"})
+        stock_formula = [row for row in coverage_rows if row["entity_type"] == "stock" and row["method"] == "formula"]
+        self.assertEqual({row["entity_id"] for row in stock_formula}, {"000001.SZ", "000002.SZ", "600000.SH", "601398.SH"})
+        self.assertEqual({row["prediction_status"] for row in stock_formula}, {"OK"})
+        sector_formula = [row for row in coverage_rows if row["entity_type"] == "sector" and row["method"] == "formula"]
+        self.assertEqual({row["prediction_status"] for row in sector_formula}, {"CONTEXT_UNAVAILABLE"})
         required = {
             "schema_version",
             "run_id",
@@ -274,8 +279,8 @@ class CliV2Test(unittest.TestCase):
             "order_status",
         }
         self.assertTrue(required.issubset(coverage_rows[0]))
-        self.assertEqual(len(persisted_predictions), 42)
-        self.assertGreaterEqual(len(persisted_features), 131)
+        self.assertEqual(len(persisted_predictions), 30)
+        self.assertEqual(len(persisted_features), 89)
         self.assertEqual(persisted_runs["run_id"].tolist(), [run_id])
 
     def test_demo_sync_only_fetches_missing_sessions_unless_forced(self) -> None:

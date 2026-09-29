@@ -232,9 +232,7 @@
     "connect_real_broker": false,
     "paper_board_permissions": [
       "MAIN_SH",
-      "MAIN_SZ",
-      "CHINEXT",
-      "STAR"
+      "MAIN_SZ"
     ],
     "paper_permission_provenance": "RESEARCH_PERMISSION_ASSUMPTION",
     "real_account_permissions_default": "UNCONFIGURED"

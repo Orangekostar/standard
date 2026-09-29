@@ -23,6 +23,7 @@ from core.backtest.execution_v2 import (
 from core.backtest.metrics_v2 import calculate_portfolio_metrics
 from core.backtest.portfolio_v2 import PaperPortfolio, apply_corporate_actions, mark_portfolio, pending_share_quantities
 from core.backtest.prism_compare_rules import security_rule
+from core.data.symbols import is_buyable_mainboard_ts_code
 from core.data.v2_store import V2Store
 from core.pipeline.prism_compare_config import STRATEGIES, file_sha256, implementation_identity, reference_cost, write_json
 from core.strategies.formula_v2 import ReturnBinModel, ReturnBinStats, estimate_formula_return
@@ -411,6 +412,8 @@ class _Replay:
 
     def _eligibility(self, row: dict[str, Any], next_date: str | None) -> list[str]:
         reasons = []
+        if not is_buyable_mainboard_ts_code(_text(row.get("code"))):
+            reasons.append("OUTSIDE_TRADING_UNIVERSE")
         if _text(row.get("instrument_type")).strip().lower() != "stock" or _bool(row.get("roster_active")) is not True or not _text(row.get("list_date")):
             reasons.append("INSTRUMENT_OR_HISTORY_UNKNOWN")
         if security_rule(row.get("listing_board"), next_date or "", self.config) is None:

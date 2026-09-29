@@ -62,6 +62,16 @@ class PrismReplayTest(unittest.TestCase):
     def read(self, output, name):
         return pd.read_csv(output / f"{name}.csv.gz", dtype={"date": str, "trade_date": str})
 
+    def test_non_mainboard_cannot_enter_from_precomputed_scores(self):
+        for code, board in (("300001.SZ", "CHINEXT"), ("301001.SZ", "CHINEXT"),
+                            ("688001.SH", "STAR"), ("689009.SH", "STAR")):
+            with self.subTest(code=code):
+                frames = [(date, frame.assign(code=code, listing_board=board)) for date, frame in self.frames()]
+                result, output = self.run_replay(f"excluded-{code}", frames)
+                self.assertEqual(result["metrics"]["filled_buy_count"], 0)
+                trace = self.read(output, "decisions")
+                self.assertTrue(trace.all_blockers.str.contains("OUTSIDE_TRADING_UNIVERSE").any())
+
     def test_disabled_b_has_identical_actions_orders_and_nav_to_a(self):
         config = copy.deepcopy(self.config)
         policy = config["strategies"]["B0_PRISM_A_SHARE_V1"]

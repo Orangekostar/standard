@@ -15,7 +15,7 @@ from core.strategies.prism_a_share import adaptive_distance, entry_allowed, mark
 
 class PrismPolicyTest(unittest.TestCase):
     def setUp(self):
-        self.config = load_config(Path(__file__).resolve().parents[2] / "configs/prism_v2_compare_v1.json")
+        self.config = load_config()
 
     def context(self):
         # Alternating positive log returns keep both positive median volatility and ER=1.

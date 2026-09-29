@@ -371,31 +371,31 @@ class V2UniverseTest(unittest.TestCase):
                 {"ts_code": "600000.SH", "name": "SH main", "asset_type": "stock", "market": "main", "list_date": "20000101"},
                 {"ts_code": "000001.SZ", "name": "SZ main", "asset_type": "stock", "market": "main", "list_date": "20000101"},
                 {"ts_code": "300001.SZ", "name": "ChiNext", "asset_type": "stock", "market": "ChiNext", "list_date": "20100101"},
+                {"ts_code": "301001.SZ", "name": "ChiNext", "asset_type": "stock", "list_date": "20210101"},
                 {"ts_code": "688001.SH", "name": "STAR", "asset_type": "stock", "market": "STAR", "list_date": "20190101"},
+                {"ts_code": "689009.SH", "name": "STAR", "asset_type": "stock", "list_date": "20200101"},
                 {"ts_code": "900901.SH", "name": "B share", "asset_type": "stock", "market": "B share", "list_date": "20000101"},
                 {"ts_code": "510300.SH", "name": "ETF", "asset_type": "fund", "market": "fund", "list_date": "20100101"},
                 {"ts_code": "920001.BJ", "name": "Beijing", "asset_type": "stock", "market": "Beijing", "list_date": "20200101"},
             ]
         )
 
-    def test_analysis_universe_includes_main_chinext_star_and_excludes_other_assets(self) -> None:
+    def test_analysis_universe_includes_only_sh_sz_mainboard_stocks(self) -> None:
         universe = build_analysis_universe(self.instruments, as_of="20260922")
 
         self.assertEqual(
             universe["ts_code"].tolist(),
-            ["000001.SZ", "300001.SZ", "600000.SH", "688001.SH"],
+            ["000001.SZ", "600000.SH"],
         )
         self.assertEqual(
             dict(zip(universe["ts_code"], universe["listing_board"])),
             {
                 "000001.SZ": "MAIN_SZ",
-                "300001.SZ": "CHINEXT",
                 "600000.SH": "MAIN_SH",
-                "688001.SH": "STAR",
             },
         )
 
-    def test_risk_warning_remains_in_analysis_but_is_not_trade_eligible(self) -> None:
+    def test_risk_warning_is_excluded_from_analysis_and_trading(self) -> None:
         row = {
             "ts_code": "600001.SH",
             "name": "*ST sample",
@@ -404,11 +404,14 @@ class V2UniverseTest(unittest.TestCase):
             "list_date": "20000101",
         }
 
-        classification = classify_instrument(row, as_of="20260922")
-
-        self.assertTrue(classification.analysis_eligible)
-        self.assertFalse(classification.trade_eligible)
-        self.assertIn("RISK_WARNING", classification.trade_blockers)
+        for name in ("ST sample", "*ST sample", "SST sample", "S*ST sample", " st sample"):
+            with self.subTest(name=name):
+                row["name"] = name
+                classification = classify_instrument(row, as_of="20260922")
+                self.assertFalse(classification.analysis_eligible)
+                self.assertFalse(classification.trade_eligible)
+                self.assertIn("RISK_WARNING", classification.trade_blockers)
+                self.assertTrue(build_analysis_universe(pd.DataFrame([row]), "20260922").empty)
 
     def test_sector_membership_uses_validity_interval_and_does_not_backfill_current_snapshot(self) -> None:
         memberships = pd.DataFrame(

@@ -78,7 +78,7 @@ class PaperRuntimeTest(unittest.TestCase):
         )
 
         self.assertEqual(first.next_trade_date, "20260923")
-        self.assertEqual(first.decision_rows, 12)
+        self.assertEqual(first.decision_rows, 8)
         self.assertEqual(second.decision_rows, 0)
         decisions = self.store.read_paper_decisions()
         self.assertEqual(set(decisions["account_id"]), {"formula-paper", "jev-shadow-paper"})
@@ -103,7 +103,7 @@ class PaperRuntimeTest(unittest.TestCase):
         matured = dispatch(parser.parse_args(["evaluate-matured", *common]))
 
         self.assertEqual(paper.exit_code, 0)
-        self.assertEqual(paper.payload["decision_rows"], 12)
+        self.assertEqual(paper.payload["decision_rows"], 8)
         self.assertEqual(paper.payload["next_trade_date"], "20260923")
         self.assertEqual(matured.exit_code, 0)
         self.assertEqual(matured.payload["status"], "NO_NEW_MATURE_LABELS")
@@ -147,6 +147,12 @@ class PaperRuntimeTest(unittest.TestCase):
         self.assertEqual(result["realized_return"], 0.01)
 
     def test_cycle_creates_next_open_exit_for_lot_reaching_planned_date(self) -> None:
+        self._assert_planned_exit("600000.SH")
+
+    def test_excluded_holding_still_exits_when_missing_from_prediction_universe(self) -> None:
+        self._assert_planned_exit("688001.SH")
+
+    def _assert_planned_exit(self, code: str) -> None:
         account = PaperPortfolio(self.store, "formula-paper")
         account.open_account(method="formula", initial_cash_cents=100_000_000)
         raw = self.store.read_daily_raw("20260921", "20260921", ["600000.SH"]).iloc[0]
@@ -182,6 +188,9 @@ class PaperRuntimeTest(unittest.TestCase):
             fee_schedule=FeeSchedule.research_defaults("19900101", source="fixture-fees"),
             security_rules={"600000.SH": rule},
         )
+        if code != "600000.SH":
+            with self.store._write_connection() as conn:
+                conn.execute("UPDATE paper_lots SET code=?", (code,))
 
         cycle = run_paper_cycle(
             self.store,
@@ -196,6 +205,7 @@ class PaperRuntimeTest(unittest.TestCase):
         self.assertEqual(len(exits), 1)
         self.assertEqual(exits.iloc[0]["earliest_trade_date"], "20260923")
         self.assertEqual(exits.iloc[0]["quantity"], 100)
+        self.assertEqual(exits.iloc[0]["code"], code)
         self.assertIn("PLANNED_EXIT_DUE", json.loads(exits.iloc[0]["reason_codes_json"]))
 
 

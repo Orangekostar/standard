@@ -118,7 +118,8 @@ class RuntimeRecoveryTest(unittest.TestCase):
                 outcome = _analyze(args)
             self.assertEqual(outcome.exit_code, 0, outcome.payload)
             snapshot = load_technical_v2_snapshot(root / "artifacts")
-            self.assertEqual(snapshot.rows["entity_id"].nunique(), 7)
+            self.assertEqual(snapshot.rows["entity_id"].nunique(), 5)
+            self.assertFalse(snapshot.rows["entity_id"].isin(["300001.SZ", "688001.SH"]).any())
             self.assertEqual(outcome.payload["universe_history_mode"], "CURRENT_SNAPSHOT_ONLY")
             self.assertGreaterEqual(
                 pd.Timestamp(snapshot.manifest["information_cutoff"]),

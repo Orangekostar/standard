@@ -1,0 +1,19 @@
+{
+  "schema_version": "rank-rotation-research.v1",
+  "experiment_id": "rank-rotation-3d-v1",
+  "base_config": "configs/prism_v2_compare_mainboard_v2.json",
+  "horizon": 3,
+  "max_names": 3,
+  "forecast_method": "formula",
+  "risk_warning_unknown": "ALLOW_RESEARCH_ONLY",
+  "st_filter": "FROZEN_SNAPSHOT_NAME_NOT_HISTORICAL_STATUS",
+  "slot_allocation": "PREVIOUS_CLOSE_NAV_DIVIDED_BY_THREE_INCLUDING_BUY_FEES",
+  "holding_score": "CURRENT_SIGNAL_DAY_SCORE",
+  "rotation_comparison": "STRICTLY_GREATER",
+  "flat_action": "HOLD_UNLESS_REPLACED_BY_HIGHER_UP",
+  "down_action": "SELL_AT_NEXT_ELIGIBLE_OPEN",
+  "fixed_holding_expiry": false,
+  "end_liquidation": false,
+  "cost_cases": ["base", "stress"],
+  "production_activation": false
+}

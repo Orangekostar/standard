@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 
@@ -292,6 +293,101 @@ class ExecutionTest(unittest.TestCase):
         self.assertEqual(allocated.orders[0].price_ceiling_floor, Decimal("10.10"))
         self.assertEqual(blocked.orders, ())
         self.assertIn("MARKET_EXPOSURE_CAP_ZERO", blocked.status_rows[0]["reason_codes"])
+
+    def test_allocator_blocks_excluded_buy_and_add_even_with_stale_eligibility(self) -> None:
+        cases = [(code, "normal", False, "OUTSIDE_TRADING_UNIVERSE") for code in (
+            "300001.SZ", "301001.SZ", "688001.SH", "689009.SH", "920001.BJ", "430047.BJ", "830799.BJ",
+        )]
+        cases += [("600000.SH", name, False, "RISK_WARNING") for name in ("ST sample", "*ST sample")]
+        cases.append(("600000.SH", "normal", True, "RISK_WARNING"))
+        for code, name, risk_warning, reason in cases:
+            for action in ("BUY", "ADD"):
+                with self.subTest(code=code, name=name, action=action):
+                    candidate = dict(code=code, name=name, is_risk_warning=risk_warning,
+                                     horizon=5, account_action=action, prediction_status="OK",
+                                     trade_eligible=True, expected_net_edge=.01, formula_score=80.,
+                                     reference_price=10., atr_pct14=.02, adv20_cny=50_000_000)
+                    result = allocate_orders(
+                        [candidate], run_id="stale", account_id="formula-paper",
+                        as_of_trade_date="20260923", earliest_trade_date="20260924",
+                        nav_cents=100_000_000, cash_cents=100_000_000, market_breadth20=.7,
+                        holdings=[], security_rules={code: self.rule},
+                    )
+                    self.assertEqual(result.orders, ())
+                    self.assertIn(reason, result.status_rows[0]["reason_codes"])
+
+    def test_direct_excluded_buy_cannot_fill_or_spend_cash(self) -> None:
+        for code in ("300001.SZ", "301001.SZ", "688001.SH", "689009.SH", "920001.BJ"):
+            with self.subTest(code=code):
+                order = replace(self.buy_order, order_id=f"direct-{code}", code=code)
+                quote = replace(self.open_market["600000.SH"], code=code)
+                result = execute_open_orders(
+                    self.store, [order], {code: quote}, fee_schedule=self.fees,
+                    security_rules={code: self.rule},
+                ).results[0]
+                self.assertEqual(result.status, "EXPIRED_UNIVERSE")
+                self.assertIn("OUTSIDE_TRADING_UNIVERSE", result.reason_codes)
+        self.assertEqual(self.store.count_fills(), 0)
+        self.assertEqual(self.portfolio.cash_cents(), 100_000_000)
+
+    def test_direct_buy_rechecks_dated_risk_warning(self) -> None:
+        with self.store._write_connection() as conn:
+            conn.execute("""INSERT INTO instrument_versions(
+                code,instrument_type,exchange,listing_board,name,valid_from,source,source_version,observed_at
+                ) VALUES ('600000.SH','stock','SSE','MAIN_SH','*ST sample','20260924','FIXTURE','v1','20260924')""")
+        result = execute_open_orders(
+            self.store, [self.buy_order], self.open_market, fee_schedule=self.fees,
+            security_rules={"600000.SH": self.rule},
+        ).results[0]
+        self.assertEqual(result.status, "EXPIRED_RISK_WARNING")
+        self.assertEqual(self.store.count_fills(), 0)
+        self.assertEqual(self.portfolio.cash_cents(), 100_000_000)
+
+    def test_direct_buy_rechecks_risk_flag_even_when_name_is_missing(self) -> None:
+        with self.store._write_connection() as conn:
+            conn.execute("""INSERT INTO trading_status(
+                code,date,source_version,is_risk_warning,source,retrieved_at
+                ) VALUES ('600000.SH','20260924','v1',1,'FIXTURE','20260924')""")
+        result = execute_open_orders(
+            self.store, [self.buy_order], self.open_market, fee_schedule=self.fees,
+            security_rules={"600000.SH": self.rule},
+        ).results[0]
+        self.assertEqual(result.status, "EXPIRED_RISK_WARNING")
+        self.assertEqual(self.store.count_fills(), 0)
+
+    def test_future_risk_warning_name_is_not_backfilled_into_past_execution(self) -> None:
+        with self.store._write_connection() as conn:
+            conn.execute("""INSERT INTO instrument_versions(
+                code,instrument_type,exchange,listing_board,name,valid_from,source,source_version,observed_at
+                ) VALUES ('600000.SH','stock','SSE','MAIN_SH','*ST future','20260924','FIXTURE','v1','20260925')""")
+        result = execute_open_orders(
+            self.store, [self.buy_order], self.open_market, fee_schedule=self.fees,
+            security_rules={"600000.SH": self.rule},
+        ).results[0]
+        self.assertEqual(result.status, "FILLED")
+
+    def test_excluded_existing_position_can_still_be_sold(self) -> None:
+        execute_open_orders(self.store, [self.buy_order], self.open_market,
+                            fee_schedule=self.fees, security_rules={"600000.SH": self.rule})
+        code = "688001.SH"
+        with self.store._write_connection() as conn:
+            conn.execute("UPDATE paper_lots SET code=?", (code,))
+        allocation = allocate_orders(
+            [dict(code=code, name="*ST sample", horizon=5, account_action="SELL", reference_price=10)],
+            run_id="exit", account_id="formula-paper", as_of_trade_date="20260925",
+            earliest_trade_date="20260925", nav_cents=100_000_000,
+            cash_cents=self.portfolio.cash_cents(), market_breadth20=.7,
+            holdings=[dict(code=code, quantity=100, sellable_quantity=100)],
+            security_rules={code: self.rule},
+        )
+        self.assertEqual(len(allocation.orders), 1)
+        quote = replace(self.open_market["600000.SH"], code=code, trade_date="20260925")
+        result = execute_open_orders(
+            self.store, allocation.orders, {code: quote}, fee_schedule=self.fees,
+            security_rules={code: self.rule},
+        ).results[0]
+        self.assertEqual(result.status, "FILLED")
+        self.assertEqual(result.filled_quantity, 100)
 
     def test_momentum_benchmark_can_use_same_allocator_without_return_estimate(self) -> None:
         candidate = {

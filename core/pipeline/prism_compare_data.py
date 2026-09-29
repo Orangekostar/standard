@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import fcntl
+import multiprocessing
 import sqlite3
 import uuid
 import resource
 import time
-from contextlib import closing, contextmanager
+from contextlib import ExitStack, closing, contextmanager
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +20,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from core.analysis.sector_v2 import TechnicalContext, build_context
+from core.data.symbols import is_buyable_mainboard_ts_code
 from core.data.v2_store import V2Store
 from core.factors.technical_v2 import apply_adjustment_factors, compute_technical_v2
 from core.pipeline.prism_compare_config import REPOSITORY_ROOT, file_sha256, write_json
@@ -330,8 +333,41 @@ def _progress(root: Path, event: str, **values: Any) -> None:
     print(json.dumps(payload, ensure_ascii=True, allow_nan=False), flush=True)
 
 
+def _feature_chunk(arguments):
+    position, panel_path, roster, cache, snapshot_db, context, regimes, config, sessions, budget = arguments
+    receipt_path = cache / f"chunk_{position:04d}.json"
+    if receipt_path.exists():
+        receipt = json.loads(receipt_path.read_text())
+        for key in ("features", "labels", "replay"):
+            _verify_cache_file(receipt[key])
+        return receipt
+    started = time.perf_counter()
+    store = _SnapshotStore(snapshot_db, data_mode="real")
+    panel = pd.read_parquet(panel_path)
+    features, labels = compute_shared_features(panel, context, config)
+    extras = [column for column in roster.columns if column not in features.columns]
+    features = features.merge(roster[["code", *extras]], on="code", how="left", validate="many_to_one")
+    statuses = store.read_trading_status(sessions[0], sessions[-1], roster.code.tolist())
+    status_columns = ["code", "date", "is_suspended", "is_risk_warning", "up_limit", "down_limit", "no_price_limit"]
+    features = features.merge(statuses[status_columns], on=["code", "date"], how="left", validate="one_to_one")
+    features = features.merge(regimes[["date", "market_state", "state_multiplier", "state_reason"]],
+                              on="date", how="left", validate="many_to_one")
+    feature_path, label_path = cache / f"features_{position:04d}.parquet", cache / f"labels_{position:04d}.parquet"
+    features.to_parquet(feature_path, index=False, compression="zstd")
+    labels.to_parquet(label_path, index=False, compression="zstd")
+    replay = write_replay_chunk(cache / "replay" / f"{position:04d}.parquet", features[list(REPLAY_COLUMNS)], sessions)
+    receipt = {"features": {"path": str(feature_path), "sha256": file_sha256(feature_path)},
+               "labels": {"path": str(label_path), "sha256": file_sha256(label_path)}, "replay": replay,
+               "elapsed_seconds": time.perf_counter() - started}
+    _check_memory(budget)
+    write_json(receipt_path, receipt, immutable=True)
+    return receipt
+
+
 def _cache_features(root: Path, snapshot: dict[str, Any], audit: SnapshotAudit,
-                    config: dict[str, Any]) -> dict[str, Any]:
+                    config: dict[str, Any], *, workers: int = 1) -> dict[str, Any]:
+    if type(workers) is not int or not 1 <= workers <= config["resources"]["max_cpu_threads"]:
+        raise ContractError("feature workers exceed the configured process budget")
     identity = _data_identity(snapshot, audit, config)
     manifest_path = root / "feature_manifest.json"
     if manifest_path.exists():
@@ -395,40 +431,28 @@ def _cache_features(root: Path, snapshot: dict[str, Any], audit: SnapshotAudit,
     _progress(root, "context_complete", elapsed_seconds=time.perf_counter() - started,
               market_sessions=len(context.market), sector_rows=len(context.sectors))
     feature_records, label_records, replay_records, mature_dates = [], [], [], set()
-    for position, (panel_path, roster) in enumerate(zip(panels, roster_chunks)):
-        chunk_start = time.perf_counter()
-        receipt_path = cache / f"chunk_{position:04d}.json"
-        if receipt_path.exists():
-            receipt = json.loads(receipt_path.read_text())
-            for key in ("features", "labels", "replay"):
-                _verify_cache_file(receipt[key])
+    chunk_budget = budget if workers == 1 else budget // (workers + 1)
+    arguments = [(position, panel_path, roster, cache, snapshot["snapshot_db"], context,
+                  regimes, config, audit.sessions, chunk_budget)
+                 for position, (panel_path, roster) in enumerate(zip(panels, roster_chunks))]
+    with ExitStack() as stack:
+        if workers == 1:
+            receipts = map(_feature_chunk, arguments)
         else:
-            panel = pd.read_parquet(panel_path)
-            features, labels = compute_shared_features(panel, context, config)
-            extras = [column for column in roster.columns if column not in features.columns]
-            features = features.merge(roster[["code", *extras]], on="code", how="left", validate="many_to_one")
-            statuses = store.read_trading_status(audit.sessions[0], audit.sessions[-1], roster.code.tolist())
-            status_columns = ["code", "date", "is_suspended", "is_risk_warning", "up_limit", "down_limit", "no_price_limit"]
-            features = features.merge(statuses[status_columns], on=["code", "date"], how="left", validate="one_to_one")
-            features = features.merge(regimes[["date", "market_state", "state_multiplier", "state_reason"]],
-                                      on="date", how="left", validate="many_to_one")
-            feature_path, label_path = cache / f"features_{position:04d}.parquet", cache / f"labels_{position:04d}.parquet"
-            features.to_parquet(feature_path, index=False, compression="zstd")
-            labels.to_parquet(label_path, index=False, compression="zstd")
-            replay = write_replay_chunk(cache / "replay" / f"{position:04d}.parquet", features[list(REPLAY_COLUMNS)], audit.sessions)
-            receipt = {"features": {"path": str(feature_path), "sha256": file_sha256(feature_path)},
-                       "labels": {"path": str(label_path), "sha256": file_sha256(label_path)}, "replay": replay,
-                       "elapsed_seconds": time.perf_counter() - chunk_start}
-            write_json(receipt_path, receipt, immutable=True)
-        feature_records.append(receipt["features"])
-        label_records.append(receipt["labels"])
-        replay_records.append(receipt["replay"])
-        maturity = pd.read_parquet(receipt["labels"]["path"], columns=["as_of_trade_date", "label_status"])
-        mature_dates.update(maturity.loc[maturity.label_status.eq("OK"), "as_of_trade_date"].tolist())
-        _check_memory(budget)
-        _progress(root, "feature_chunk_complete", chunk=position + 1, total_chunks=len(roster_chunks),
-                  chunk_elapsed_seconds=receipt["elapsed_seconds"], elapsed_seconds=time.perf_counter() - started)
+            pool = stack.enter_context(ProcessPoolExecutor(max_workers=workers,
+                mp_context=multiprocessing.get_context("spawn")))
+            receipts = pool.map(_feature_chunk, arguments)
+        for position, receipt in enumerate(receipts):
+            feature_records.append(receipt["features"])
+            label_records.append(receipt["labels"])
+            replay_records.append(receipt["replay"])
+            maturity = pd.read_parquet(receipt["labels"]["path"], columns=["as_of_trade_date", "label_status"])
+            mature_dates.update(maturity.loc[maturity.label_status.eq("OK"), "as_of_trade_date"].tolist())
+            _check_memory(chunk_budget)
+            _progress(root, "feature_chunk_complete", chunk=position + 1, total_chunks=len(roster_chunks),
+                      chunk_elapsed_seconds=receipt["elapsed_seconds"], elapsed_seconds=time.perf_counter() - started)
     manifest = {"status": "COMPLETE", "feature_identity": identity, "snapshot_sha256": snapshot["snapshot_sha256"],
+                "feature_workers": workers,
                 "sessions": audit.sessions, "roster_count": len(audit.roster), "feature_chunks": feature_records,
                 "label_chunks": label_records, "replay_chunks": replay_records, "mature_signal_dates": sorted(mature_dates),
                 "market_regimes_path": str(cache / "market_regimes.parquet"), "context": context_record,
@@ -579,6 +603,8 @@ def audit_snapshot(path: str | Path, config: dict[str, Any]) -> SnapshotAudit:
         roster = pd.DataFrame({"code": sorted(set(versions.code) | set(bar_codes.code))}).merge(
             versions[columns], on="code", how="left", validate="one_to_one",
         ).merge(bar_codes, on="code", how="left", validate="one_to_one")
+        excluded_board_codes = roster.loc[~roster.code.map(is_buyable_mainboard_ts_code), "code"].tolist()
+        roster = roster.loc[roster.code.map(is_buyable_mainboard_ts_code)].reset_index(drop=True)
         roster["instrument_type"] = roster.instrument_type.astype("string").str.strip().str.lower()
         roster["metadata_status"] = np.where(roster.instrument_type.eq("stock").fillna(False) & roster.list_date.notna(), "AVAILABLE_LIST_DATE_HISTORY_LIMITED", "INSTRUMENT_METADATA_UNKNOWN")
         # Keep unavailable roster rows. Unknown list dates are not used to backdate new entries.
@@ -612,6 +638,7 @@ def audit_snapshot(path: str | Path, config: dict[str, Any]) -> SnapshotAudit:
         "calendar_agreement": "SSE_SZSE_MATCH", "complete_audit_exchanges": audit_exchanges,
         "audit_scope": "SOURCE_COMPLETE_AUDIT_PLUS_BOTH_EXCHANGE_CALENDARS",
         "tables": tables, "price_mode_counts": mode_counts, "roster_code_count": len(roster),
+        "universe": config["data"]["universe"], "excluded_board_codes": excluded_board_codes,
         "listed_instrument_snapshot_count": len(versions), "historical_universe_complete": False,
         "corporate_action_rows": len(actions), "corporate_action_coverage_proven": False,
         "known_risk_warning_rows": risk_known, "risk_warning_unknown_policy": config["data"]["risk_warning_unknown"],

@@ -328,9 +328,25 @@ def run_paper_cycle(
         holding_lookup = {str(item["code"]): item for item in holdings}
         payloads = _payloads(store, run_id, method)
         candidates = [
-            _candidate(payload, holding_lookup, next_trade_date)
+            {
+                **_candidate(payload, holding_lookup, next_trade_date),
+                "name": metadata.get(str(payload["entity_id"]), {}).get("name"),
+                "is_risk_warning": status_lookup.get(str(payload["entity_id"]), {}).get("is_risk_warning"),
+            }
             for payload in payloads
         ]
+        predicted_codes = {str(payload["entity_id"]) for payload in payloads}
+        for holding in holdings:
+            code = str(holding["code"])
+            if code not in predicted_codes and holding["force_exit"]:
+                candidates.append({
+                    "code": code,
+                    "horizon": 5,
+                    "account_action": "SELL",
+                    "reference_price": closes.get(code),
+                    "sector_id": holding["sector_id"],
+                    "reason_codes": holding["exit_reason_codes"],
+                })
         breadth_values = []
         for payload in payloads:
             factors = payload.get("factor_values") if isinstance(payload.get("factor_values"), dict) else {}

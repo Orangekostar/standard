@@ -28,6 +28,10 @@ class PrismDataTest(unittest.TestCase):
     def setUp(self):
         self.config = load_config()
 
+    def test_default_comparison_universe_is_mainboard_only(self):
+        self.assertEqual(self.config["data"]["universe"], "available_historical_SSE_SZSE_MAIN_BOARD_A_shares")
+        self.assertEqual(self.config["data"]["risk_warning_unknown"], "BLOCK_NEW_ENTRIES")
+
     def fixture(self, count=110):
         dates = pd.bdate_range("2024-01-02", periods=count).strftime("%Y%m%d").tolist()
         close = 10 * np.exp(np.arange(count) * .001 + np.sin(np.arange(count)) * .003)
@@ -234,6 +238,10 @@ class PrismDataTest(unittest.TestCase):
                 for date in ("20260102", "20260105", "20260106"):
                     conn.execute("INSERT INTO daily_raw(code,date,source_version,open,high,low,close,volume_shares,amount_cny,source,retrieved_at,completeness,data_source_mode) VALUES ('600000.SH',?,'v1',10,11,9,10,10000,100000,'FIXTURE','20260106','COMPLETE','real')", (date,))
                 conn.execute("INSERT INTO sync_audits(exchange,date,source_version,expected_instruments,observed_rows,known_non_trading_rows,coverage,status,recorded_at) VALUES ('SSE','20260105','v1',1,1,0,1,'COMPLETE','20260106')")
+                for code, exchange, board in (("300001.SZ", "SZSE", "CHINEXT"), ("301001.SZ", "SZSE", "CHINEXT"),
+                                              ("688001.SH", "SSE", "STAR"), ("689009.SH", "SSE", "STAR")):
+                    conn.execute("INSERT INTO instrument_versions(code,instrument_type,exchange,listing_board,list_date,valid_from,source,source_version,observed_at) VALUES (?,'stock',?,?,'20200101','20260102','FIXTURE','v1','20260106')", (code, exchange, board))
+                conn.execute("INSERT INTO daily_raw(code,date,source_version,open,high,low,close,volume_shares,amount_cny,source,retrieved_at,completeness,data_source_mode) VALUES ('300002.SZ','20260102','v1',10,11,9,10,10000,100000,'FIXTURE','20260106','COMPLETE','real')")
                 conn.commit()
             result = audit_snapshot(source, self.config)
             self.assertEqual(result.audit["as_of"], "20260105")
@@ -241,6 +249,7 @@ class PrismDataTest(unittest.TestCase):
             self.assertEqual(result.audit["calendar_agreement"], "SSE_SZSE_MATCH")
             self.assertIn("RAW_PRICE_LEDGER_CORPORATE_ACTIONS_INCOMPLETE", result.audit["scope_flags"])
             self.assertNotIn("name", result.roster.columns)
+            self.assertEqual(result.roster.code.tolist(), ["600000.SH"])
             self.assertEqual(result.roster.iloc[0].metadata_status, "AVAILABLE_LIST_DATE_HISTORY_LIMITED")
 
 
